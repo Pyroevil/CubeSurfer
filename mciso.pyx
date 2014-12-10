@@ -1,12 +1,28 @@
-import time
-import math
-from math import sqrt,sin,cos,tan
-from itertools import chain
-import cProfile
-ABS=abs
-cdef int **allo = [[0x0,0x109],[0x30a,0x406]]
-print allo[0][0]
-print allo[1][1]
+#cython: profile=False
+#cython: boundscheck=False
+#cython: cdivision=True
+
+# NOTE: order of slow fonction to be optimize/multithreaded: kdtreesearching , kdtreecreating , linksolving 
+
+cimport cython
+from time import clock
+from libc.math cimport sin
+from cython.parallel import parallel , prange , threadid
+from libc.stdlib cimport malloc , realloc, free , rand , srand
+
+cdef extern from *:
+    int INT_MAX
+    float FLT_MAX
+
+cdef extern from "stdlib.h":
+    ctypedef void const_void "const void"
+    void qsort(void *base, int nmemb, int size,int(*compar)(const_void *, const_void *)) nogil
+    
+
+cdef int cytrimem = 40
+cdef int cytrinum = 0
+cdef float ***cytriangles = NULL
+
 cdef int *edgetable=[0x0, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
                                 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
                                 0x190, 0x99 , 0x393, 0x29a, 0x596, 0x49f, 0x795, 0x69c,
@@ -298,139 +314,280 @@ cdef int **tritable = [[-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 
                     [0, 3, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
                     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]]
 
-cdef float scalarfield(pos):
-    cdef float x,y,z
-    x,y,z = pos[0],pos[1],pos[2]
-    #m=2 #distance between spheres
+cdef float scalarfield(point pos):
+
+    #cdef float m = 2 #distance between spheres
+    #cdef float a
+    #cdef float b
+    #cdef float c
+    #cdef float csq
     #a= 1.0/(1+(x-m)*(x-m)+y*y+z*z)
     #b= 1.0/(1+(x+m)*(x+m)+y*y+z*z)
     #c= 0.5*(sin(6*x)+sin(6*z))
     #csq=c**10
     #return (a+b)-csq
-    return x*x+y*y+z*z 
+    
+    return pos.x*pos.x+pos.y*pos.y+pos.z*pos.z 
  
  
-cdef polygonise(cornervalues,cornerpos,float isolevel):
-    global edgetable,tritable
+cdef void polygonise(float *cycornervalues,point *cycornerpos,float isolevel):
+    global edgetable,tritable,cytriangles,cytrimem,cytrinum
 
-     
+    cdef int i = 0
+    cdef int cubeindex = 0
+    cdef point *cyvertlist = NULL
+    
+    #cornervalues = [0] * 8
+    #cornerpos = [0] * 8
+    #for i in range(8):
+        #cornervalues[i] = cycornervalues[i]
+        #cornerpos[i] = [cycornerpos[i][0],cycornerpos[i][1],cycornerpos[i][2]]
        
         #   Determine the index into the edge table which
         #   tells us which vertices are inside of the surface
-    cdef int cubeindex = 0
-    if cornervalues[0] < isolevel: cubeindex = cubeindex | 1
-    if cornervalues[1] < isolevel: cubeindex = cubeindex | 2
-    if cornervalues[2] < isolevel: cubeindex = cubeindex | 4
-    if cornervalues[3] < isolevel: cubeindex = cubeindex | 8
-    if cornervalues[4] < isolevel: cubeindex = cubeindex | 16
-    if cornervalues[5] < isolevel: cubeindex = cubeindex | 32
-    if cornervalues[6] < isolevel: cubeindex = cubeindex | 64
-    if cornervalues[7] < isolevel: cubeindex = cubeindex | 128
+
+    if cycornervalues[0] < isolevel: cubeindex = cubeindex | 1
+    if cycornervalues[1] < isolevel: cubeindex = cubeindex | 2
+    if cycornervalues[2] < isolevel: cubeindex = cubeindex | 4
+    if cycornervalues[3] < isolevel: cubeindex = cubeindex | 8
+    if cycornervalues[4] < isolevel: cubeindex = cubeindex | 16
+    if cycornervalues[5] < isolevel: cubeindex = cubeindex | 32
+    if cycornervalues[6] < isolevel: cubeindex = cubeindex | 64
+    if cycornervalues[7] < isolevel: cubeindex = cubeindex | 128
        
     # Cube is entirely in/out of the surface
-    if edgetable[cubeindex] == 0: return []
+    if edgetable[cubeindex] == 0:
+        return #[]
        
-    vertlist=[[]]*12
+    #vertlist=[]
+    cyvertlist = <point *>malloc( 12 * cython.sizeof(point) )
+        #vertlist.append([0,0,0])
+        
         # Find the vertices where the surface intersects the cube
-    if (edgetable[cubeindex] & 1):    vertlist[0]  = vertexinterp(isolevel,cornerpos[0],cornerpos[1],cornervalues[0],cornervalues[1])
-    if (edgetable[cubeindex] & 2):    vertlist[1]  = vertexinterp(isolevel,cornerpos[1],cornerpos[2],cornervalues[1],cornervalues[2])
-    if (edgetable[cubeindex] & 4):    vertlist[2]  = vertexinterp(isolevel,cornerpos[2],cornerpos[3],cornervalues[2],cornervalues[3])
-    if (edgetable[cubeindex] & 8):    vertlist[3]  = vertexinterp(isolevel,cornerpos[3],cornerpos[0],cornervalues[3],cornervalues[0])
-    if (edgetable[cubeindex] & 16):   vertlist[4]  = vertexinterp(isolevel,cornerpos[4],cornerpos[5],cornervalues[4],cornervalues[5])
-    if (edgetable[cubeindex] & 32):   vertlist[5]  = vertexinterp(isolevel,cornerpos[5],cornerpos[6],cornervalues[5],cornervalues[6])
-    if (edgetable[cubeindex] & 64):   vertlist[6]  = vertexinterp(isolevel,cornerpos[6],cornerpos[7],cornervalues[6],cornervalues[7])
-    if (edgetable[cubeindex] & 128):  vertlist[7]  = vertexinterp(isolevel,cornerpos[7],cornerpos[4],cornervalues[7],cornervalues[4])
-    if (edgetable[cubeindex] & 256):  vertlist[8]  = vertexinterp(isolevel,cornerpos[0],cornerpos[4],cornervalues[0],cornervalues[4])
-    if (edgetable[cubeindex] & 512):  vertlist[9]  = vertexinterp(isolevel,cornerpos[1],cornerpos[5],cornervalues[1],cornervalues[5])
-    if (edgetable[cubeindex] & 1024): vertlist[10] = vertexinterp(isolevel,cornerpos[2],cornerpos[6],cornervalues[2],cornervalues[6])
-    if (edgetable[cubeindex] & 2048): vertlist[11] = vertexinterp(isolevel,cornerpos[3],cornerpos[7],cornervalues[3],cornervalues[7])
-     
+    if (edgetable[cubeindex] & 1):    vertexinterp(&cyvertlist[0],isolevel,cycornerpos[0],cycornerpos[1],cycornervalues[0],cycornervalues[1])
+    if (edgetable[cubeindex] & 2):    vertexinterp(&cyvertlist[1],isolevel,cycornerpos[1],cycornerpos[2],cycornervalues[1],cycornervalues[2])
+    if (edgetable[cubeindex] & 4):    vertexinterp(&cyvertlist[2],isolevel,cycornerpos[2],cycornerpos[3],cycornervalues[2],cycornervalues[3])
+    if (edgetable[cubeindex] & 8):    vertexinterp(&cyvertlist[3],isolevel,cycornerpos[3],cycornerpos[0],cycornervalues[3],cycornervalues[0])
+    if (edgetable[cubeindex] & 16):   vertexinterp(&cyvertlist[4],isolevel,cycornerpos[4],cycornerpos[5],cycornervalues[4],cycornervalues[5])
+    if (edgetable[cubeindex] & 32):   vertexinterp(&cyvertlist[5],isolevel,cycornerpos[5],cycornerpos[6],cycornervalues[5],cycornervalues[6])
+    if (edgetable[cubeindex] & 64):   vertexinterp(&cyvertlist[6],isolevel,cycornerpos[6],cycornerpos[7],cycornervalues[6],cycornervalues[7])
+    if (edgetable[cubeindex] & 128):  vertexinterp(&cyvertlist[7],isolevel,cycornerpos[7],cycornerpos[4],cycornervalues[7],cycornervalues[4])
+    if (edgetable[cubeindex] & 256):  vertexinterp(&cyvertlist[8],isolevel,cycornerpos[0],cycornerpos[4],cycornervalues[0],cycornervalues[4])
+    if (edgetable[cubeindex] & 512):  vertexinterp(&cyvertlist[9],isolevel,cycornerpos[1],cycornerpos[5],cycornervalues[1],cycornervalues[5])
+    if (edgetable[cubeindex] & 1024): vertexinterp(&cyvertlist[10],isolevel,cycornerpos[2],cycornerpos[6],cycornervalues[2],cycornervalues[6])
+    if (edgetable[cubeindex] & 2048): vertexinterp(&cyvertlist[11],isolevel,cycornerpos[3],cycornerpos[7],cycornervalues[3],cycornervalues[7])
+    
+    #for i in xrange(12):
+        #vertlist[i][0] = cyvertlist[i][0]
+        #vertlist[i][1] = cyvertlist[i][1]
+        #vertlist[i][2] = cyvertlist[i][2]
+    
     #Create the triangle
-    triangles = []
+    #triangles = []
     #for (i=0;triTable[cubeindex][i]!=-1;i+=3) {
-    cdef int i=0
+    i=0
     while tritable[cubeindex][i] != -1:
-        triangles.append([vertlist[tritable[cubeindex][i  ]],
-                                   vertlist[tritable[cubeindex][i+1]],
-                                   vertlist[tritable[cubeindex][i+2]]])
+        cytriangles[cytrinum] = <float **>malloc( 3 * cython.sizeof(double) )
+        for ii in range(3):
+            cytriangles[cytrinum][ii] = <float *>malloc( 3 * cython.sizeof(float) )
+        cytriangles[cytrinum][0][0] = cyvertlist[tritable[cubeindex][i]].x
+        cytriangles[cytrinum][0][1] = cyvertlist[tritable[cubeindex][i]].y
+        cytriangles[cytrinum][0][2] = cyvertlist[tritable[cubeindex][i]].z
+        
+        cytriangles[cytrinum][1][0] = cyvertlist[tritable[cubeindex][i+1]].x
+        cytriangles[cytrinum][1][1] = cyvertlist[tritable[cubeindex][i+1]].y
+        cytriangles[cytrinum][1][2] = cyvertlist[tritable[cubeindex][i+1]].z
+        
+        cytriangles[cytrinum][2][0] = cyvertlist[tritable[cubeindex][i+2]].x
+        cytriangles[cytrinum][2][1] = cyvertlist[tritable[cubeindex][i+2]].y
+        cytriangles[cytrinum][2][2] = cyvertlist[tritable[cubeindex][i+2]].z
+        cytrinum += 1
+        
+        if cytrinum >= cytrimem - 2:
+            cytrimem = cytrimem * 2
+            cytriangles = <float ***>realloc(cytriangles,cytrimem * cython.sizeof(double) )
+        
+        #triangles.append([vertlist[tritable[cubeindex][i  ]],vertlist[tritable[cubeindex][i+1]],vertlist[tritable[cubeindex][i+2]]])
+        
         i+=3
-       
-    return triangles
+
+    free(cyvertlist)
+    cyvertlist = NULL  
+    #return #triangles
  
-cdef vertexinterp(isolevel,p1,p2,valp1,valp2):
-    if (ABS(isolevel-valp1) < 0.00001):
-        return p1
-    if (ABS(isolevel-valp2) < 0.00001):
-        return p2
-    if (ABS(valp1-valp2) < 0.00001):
-        return p1
-    mu = (isolevel - valp1) / (valp2 - valp1);
-    p=[0,0,0]
-    p[0] = p1[0] + mu * (p2[0] - p1[0]);
-    p[1] = p1[1] + mu * (p2[1] - p1[1]);
-    p[2] = p1[2] + mu * (p2[2] - p1[2]);
+cdef void vertexinterp(point *cyvertlist,float isolevel,point p1,point p2,float valp1,float valp2):
+    if (abs(isolevel-valp1) < 0.00001):
+        cyvertlist.x = p1.x
+        cyvertlist.y = p1.y
+        cyvertlist.z = p1.z
+        return
+    if (abs(isolevel-valp2) < 0.00001):
+        cyvertlist.x = p2.x
+        cyvertlist.y = p2.y
+        cyvertlist.z = p2.z
+        return
+    if (abs(valp1-valp2) < 0.00001):
+        cyvertlist.x = p1.x
+        cyvertlist.y = p1.y
+        cyvertlist.z = p1.z
+        return
+    cdef float mu
+    cdef float *p = [0,0,0]
+    mu = (isolevel - valp1) / (valp2 - valp1)
+    cyvertlist.x = p1.x + mu * (p2.x - p1.x)
+    cyvertlist.y = p1.y + mu * (p2.y - p1.y)
+    cyvertlist.z = p1.z + mu * (p2.z - p1.z)
  
-    return p
+    #return
  
  
-cdef arange(float start, float stop, float step):
+cdef void arange(float *result,float start, float stop, float step):
     cdef float r = start
-    result = []
+    cdef int icount = 0
     while r < stop:
-        #yield r
-        result.append(r)
+        result[icount] = r
         r += step
-    return result
+        icount += 1
+    #return
  
-cdef cellloop(p0,p1,r):
-    result = []
-    zresult = arange(p0[2],p1[2],r[2])
-    for z in zresult:
-        yresult = arange(p0[1],p1[1],r[1])
-        for y in yresult:
-            xresult = arange(p0[0],p1[0],r[0])
-            for x in xresult:
-                #yield x,y,z
-                result.append([x,y,z])
-    return result  
+cdef void cellloop(point *cyresult,float *p0,float *p1,float *r,int *cyres,int cellr):
+
+    cdef float *xresult = NULL
+    cdef float *yresult = NULL
+    cdef float *zresult = NULL
+    cdef int ix = 0
+    cdef int iy = 0
+    cdef int iz = 0
+    cdef int i = 0
+    xresult = <float *>malloc( (<int>(((p1[0] - p0[0]) / r[0]) + 1)) * cython.sizeof(float) )
+    yresult = <float *>malloc( (<int>(((p1[1] - p0[1]) / r[1]) + 1)) * cython.sizeof(float) )
+    zresult = <float *>malloc( (<int>(((p1[2] - p0[2]) / r[2]) + 1)) * cython.sizeof(float) )
+    arange(&zresult[0],p0[2],p1[2],r[2])
+    for iz in xrange(cyres[2]):
+        arange(&yresult[0],p0[1],p1[1],r[1])
+        for iy in xrange(cyres[1]):
+            arange(&xresult[0],p0[0],p1[0],r[0])
+            for ix in xrange(cyres[0]):
+                cyresult[i].x = xresult[ix]
+                cyresult[i].y = yresult[iy]
+                cyresult[i].z = zresult[iz]
+                i += 1
+
+    free(xresult)
+    free(yresult)
+    free(zresult)
+    xresult = NULL
+    yresult = NULL
+    zresult = NULL
+    #return
    
-cdef cornerloop(x,y,z):
-    result = []
-    cdef int i
-    for cz in (0,z):
-        cy = [0,y,y,0]
-        cx = [0,0,x,x]
-        #for cy,cx in zip((0,y,y,0),(0,0,x,x)):
-        for i in range(4):
-            #yield cx,cy,cz
-            result.append([cx[i],cy[i],cz])
-    return result
+cdef void cornerloop(point *cyresult,float x,float y,float z):
+    cdef int i = 0
+    cdef int ii = 0
+    cdef float *cx = [0,0,0,0]
+    cdef float *cy = [0,0,0,0]
+    cdef float *cz = [0,0]
+    
+    cz[0] = 0
+    cz[1] = z
+    for icz in xrange(2):
+        cy[0] = 0
+        cy[1] = y
+        cy[2] = y
+        cy[3] = 0
+        cx[0] = 0
+        cx[1] = 0
+        cx[2] = x
+        cx[3] = x
+        for i in xrange(4):
+            cyresult[ii].x = cx[i]
+            cyresult[ii].y = cy[i]
+            cyresult[ii].z = cz[icz]
+            ii += 1
+    #return
  
 cpdef isosurface(p0,p1,resolution,float isolevel):
-    #r=[(x1-x0)/sw for x0,x1,sw in zip(p0,p1,resolution)]
-    r = []
+    global cytriangles,cytrimem,cytrinum
+    cytriangles = <float ***>malloc( cytrimem * cython.sizeof(double) )
+    
+    cdef float *cyp0 = [p0[0],p0[1],p0[2]]
+    cdef float *cyp1 = [p1[0],p1[1],p1[2]]
+    cdef int *cyres = [resolution[0],resolution[1],resolution[2]]
+    cdef int cellr = <int>(resolution[0] * resolution[1] * resolution[2])
+    
     cdef int i = 0
+    cdef int tri = 0
+    cdef int ii = 0
     cdef float x = 0
     cdef float y = 0
     cdef float z = 0
     cdef float cx = 0
     cdef float cy = 0
     cdef float cz = 0
-    for i in range(len(p0)):
-        r.append((p1[i]-p0[i])/resolution[i])
+    cdef float *r = [0,0,0]
+    
+    cdef point *cornerpos = NULL
+    cdef float *cornervalues = NULL
+    cdef point *celll = NULL
+    cdef point *cornerl = NULL
+    
+    cornerpos = <point *>malloc( 8 * cython.sizeof(point) )
+    cornerl = <point *>malloc( 8 * cython.sizeof(point) )
+    
+    celll = <point *>malloc( cellr * cython.sizeof(point) )
+    
+    cornervalues = <float *>malloc( 8 * cython.sizeof(float) )
+    
+    for i in range(3):
+        r[i] = (cyp1[i]-cyp0[i])/cyres[i]
+
+    cellloop(&celll[0],cyp0,cyp1,r,cyres,cellr)
+
+    for i in xrange(cellr):
+        x = celll[i].x
+        y = celll[i].y
+        z = celll[i].z
+        cornerloop(&cornerl[0],r[0],r[1],r[2])
+        for ii in xrange(8):
+            cx = cornerl[ii].x
+            cy = cornerl[ii].y
+            cz = cornerl[ii].z
+            cornerpos[ii].x = x+cx
+            cornerpos[ii].y = y+cy
+            cornerpos[ii].z = z+cz
+            cornervalues[ii] = scalarfield(cornerpos[ii])
+        polygonise(cornervalues,cornerpos,isolevel)
         
-    triangles=[]
-    celll = cellloop(p0,p1,r)
-    for x,y,z in celll:
-        cornervalues=[]
-        cornerpos=[]
-        #print(a)
-        cornerl = cornerloop(r[0],r[1],r[2])
-        for cx,cy,cz in cornerl:
-            pos=[x+cx,y+cy,z+cz]
-            cornerpos.append(pos)
-            cornervalues.append(scalarfield(pos))
-        triangles.extend(polygonise(cornervalues,cornerpos,isolevel))
-             
-    return triangles
- 
+    tmptriangles = []
+    # faire que tmptriangle soit un tupple 1D au lieu d'un array multi-D ** exige de changer le script python aussi
+    for tri in range(cytrinum):
+        a = (cytriangles[tri][0][0],cytriangles[tri][0][1],cytriangles[tri][0][2])
+        b = (cytriangles[tri][1][0],cytriangles[tri][1][1],cytriangles[tri][1][2])
+        c = (cytriangles[tri][2][0],cytriangles[tri][2][1],cytriangles[tri][2][2])
+        tmptriangles.append((a,b,c))
+    
+    for tri in range(cytrinum):
+        for i in range(3):
+            free(cytriangles[tri][i])
+            cytriangles[tri][i] = NULL
+        free(cytriangles[tri])
+        cytriangles[tri] = NULL
+    free(cytriangles)
+    cytriangles = NULL
+    cytrimem = 40
+    cytrinum = 0
+    free(cornerl)
+    cornerl = NULL
+    free(cornerpos)
+    cornerpos = NULL
+    free(cornervalues)
+    cornervalues = NULL
+    free(celll)
+    celll = NULL
+
+    return tmptriangles
+    
+cdef struct point:
+    float x
+    float y
+    float z
