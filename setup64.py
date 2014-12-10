@@ -9,7 +9,7 @@ ext_modules = [Extension("mciso", ["mciso.pyx"],extra_compile_args=['/O2','/open
 #ext_modules = [Extension("cmolcore", ["cmolcore.pyx"],extra_compile_args=['/openmp'])]
 
 setup(
-  name = 'Marching Cube script',
+  name = 'CubeSurfer core script',
   cmdclass = {'build_ext': build_ext},
   ext_modules = ext_modules
 )
