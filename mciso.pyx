@@ -22,6 +22,7 @@ cdef extern from "stdlib.h":
 cdef int cytrimem = 40
 cdef int cytrinum = 0
 cdef float ***cytriangles = NULL
+cdef float *cysend = NULL
 
 cdef int *edgetable=[0x0, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
                                 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
@@ -507,7 +508,7 @@ cdef void cornerloop(point *cyresult,float x,float y,float z):
     #return
  
 cpdef isosurface(p0,p1,resolution,float isolevel):
-    global cytriangles,cytrimem,cytrinum
+    global cytriangles,cytrimem,cytrinum,cysend
     cytriangles = <float ***>malloc( cytrimem * cython.sizeof(double) )
     
     cdef float *cyp0 = [p0[0],p0[1],p0[2]]
@@ -557,14 +558,27 @@ cpdef isosurface(p0,p1,resolution,float isolevel):
             cornerpos[ii].z = z+cz
             cornervalues[ii] = scalarfield(cornerpos[ii])
         polygonise(cornervalues,cornerpos,isolevel)
-        
-    tmptriangles = []
-    # faire que tmptriangle soit un tupple 1D au lieu d'un array multi-D ** exige de changer le script python aussi
+    
+    #tmptriangles = []
+    '''
     for tri in range(cytrinum):
         a = (cytriangles[tri][0][0],cytriangles[tri][0][1],cytriangles[tri][0][2])
         b = (cytriangles[tri][1][0],cytriangles[tri][1][1],cytriangles[tri][1][2])
         c = (cytriangles[tri][2][0],cytriangles[tri][2][1],cytriangles[tri][2][2])
         tmptriangles.append((a,b,c))
+    '''
+    cdef int vert = 0
+    cdef int pt = 0
+    i = 0
+    tmptriangles = [666.666] * cytrinum * 3 * 3
+    #cysend = <float *>malloc( (cytrinum * 3 * 3) * cython.sizeof(float) )
+    for tri in range(cytrinum):
+        for vert in range(3):
+            for pt in range(3):
+                tmptriangles[i] = cytriangles[tri][vert][pt]
+                #cysend[i] = cytriangles[tri][vert][pt]
+                i += 1                
+    #print(i,cytrinum * 3 * 3,cytrinum)
     
     for tri in range(cytrinum):
         for i in range(3):
@@ -575,6 +589,7 @@ cpdef isosurface(p0,p1,resolution,float isolevel):
     free(cytriangles)
     cytriangles = NULL
     cytrimem = 40
+    pynum = cytrinum * 3 * 3
     cytrinum = 0
     free(cornerl)
     cornerl = NULL
@@ -584,8 +599,16 @@ cpdef isosurface(p0,p1,resolution,float isolevel):
     cornervalues = NULL
     free(celll)
     celll = NULL
+    #print(cysend[0],cysend[1],cysend[2])
+    return tmptriangles #(pynum,<int>&cysend[0]) 
 
-    return tmptriangles
+cpdef freemem():
+    global cysend
+    print(cysend[0],cysend[1],cysend[2])
+    free(cysend)
+    cysend = NULL
+    print('memory freed')
+    return True
     
 cdef struct point:
     float x
