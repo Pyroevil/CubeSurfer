@@ -6,9 +6,11 @@
 
 cimport cython
 from time import clock
-from libc.math cimport sin
+from libc.math cimport sin , ceil , floor
 from cython.parallel import parallel , prange , threadid
 from libc.stdlib cimport malloc , realloc, free , rand , srand
+
+ctypedef float (*f_type)(Point)
 
 cdef extern from *:
     int INT_MAX
@@ -23,6 +25,8 @@ cdef int cytrimem = 40
 cdef int cytrinum = 0
 cdef float ***cytriangles = NULL
 cdef float *cysend = NULL
+cdef Particle *cypar = NULL
+cdef int cyparnum = 0
 
 cdef int *edgetable=[0x0, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
                                 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
@@ -315,28 +319,47 @@ cdef int **tritable = [[-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 
                     [0, 3, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
                     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]]
 
-cdef float scalarfield(point pos):
-
-    #cdef float m = 2 #distance between spheres
-    #cdef float a
-    #cdef float b
-    #cdef float c
-    #cdef float csq
-    #a= 1.0/(1+(x-m)*(x-m)+y*y+z*z)
-    #b= 1.0/(1+(x+m)*(x+m)+y*y+z*z)
-    #c= 0.5*(sin(6*x)+sin(6*z))
-    #csq=c**10
-    #return (a+b)-csq
+cdef float scalarfield(Point pos):
+    #'''
+    global cypar,cyparnum
+    cdef float dist = 0.0
+    cdef float x = 0.0
+    cdef float y = 0.0
+    cdef float z = 0.0
+    cdef float a = 1000.0
+    cdef float b = 0
+    for i in range(cyparnum):
+        x = pos.loc[0] - cypar[i].loc[0]
+        y = pos.loc[1] - cypar[i].loc[1]
+        z = pos.loc[2] - cypar[i].loc[2]
+        dist = x*x+y*y+z*z
+        b = dist**0.5 - cypar[i].size
+        if b < a:
+            a = b
+    return a
+    #'''
+    '''        
+    cdef float m = 2 #distance between spheres
+    cdef float a
+    cdef float b
+    cdef float c
+    cdef float csq
+    a= 1.0/(1+(pos.loc[0]-m)*(pos.loc[0]-m)+pos.loc[1]*pos.loc[1]+pos.loc[2]*pos.loc[2])
+    b= 1.0/(1+(pos.loc[0]+m)*(pos.loc[0]+m)+pos.loc[1]*pos.loc[1]+pos.loc[2]*pos.loc[2])
+    c= 0.5*(sin(6*pos.loc[0])+sin(6*pos.loc[2]))
+    csq=c**10
+    return (a+b)-csq
+    '''
     
-    return pos.x*pos.x+pos.y*pos.y+pos.z*pos.z 
+    #return pos.loc[0]*pos.loc[0]+pos.loc[1]*pos.loc[1]+pos.loc[2]*pos.loc[2] 
  
  
-cdef void polygonise(float *cycornervalues,point *cycornerpos,float isolevel):
+cdef void polygonise(float *cycornervalues,Point *cycornerpos,float isolevel):
     global edgetable,tritable,cytriangles,cytrimem,cytrinum
 
     cdef int i = 0
     cdef int cubeindex = 0
-    cdef point *cyvertlist = NULL
+    cdef Point *cyvertlist = NULL
     
     #cornervalues = [0] * 8
     #cornerpos = [0] * 8
@@ -361,7 +384,7 @@ cdef void polygonise(float *cycornervalues,point *cycornerpos,float isolevel):
         return #[]
        
     #vertlist=[]
-    cyvertlist = <point *>malloc( 12 * cython.sizeof(point) )
+    cyvertlist = <Point *>malloc( 12 * cython.sizeof(Point) )
         #vertlist.append([0,0,0])
         
         # Find the vertices where the surface intersects the cube
@@ -391,17 +414,17 @@ cdef void polygonise(float *cycornervalues,point *cycornerpos,float isolevel):
         cytriangles[cytrinum] = <float **>malloc( 3 * cython.sizeof(double) )
         for ii in range(3):
             cytriangles[cytrinum][ii] = <float *>malloc( 3 * cython.sizeof(float) )
-        cytriangles[cytrinum][0][0] = cyvertlist[tritable[cubeindex][i]].x
-        cytriangles[cytrinum][0][1] = cyvertlist[tritable[cubeindex][i]].y
-        cytriangles[cytrinum][0][2] = cyvertlist[tritable[cubeindex][i]].z
+        cytriangles[cytrinum][0][0] = cyvertlist[tritable[cubeindex][i]].loc[0]
+        cytriangles[cytrinum][0][1] = cyvertlist[tritable[cubeindex][i]].loc[1]
+        cytriangles[cytrinum][0][2] = cyvertlist[tritable[cubeindex][i]].loc[2]
         
-        cytriangles[cytrinum][1][0] = cyvertlist[tritable[cubeindex][i+1]].x
-        cytriangles[cytrinum][1][1] = cyvertlist[tritable[cubeindex][i+1]].y
-        cytriangles[cytrinum][1][2] = cyvertlist[tritable[cubeindex][i+1]].z
+        cytriangles[cytrinum][1][0] = cyvertlist[tritable[cubeindex][i+1]].loc[0]
+        cytriangles[cytrinum][1][1] = cyvertlist[tritable[cubeindex][i+1]].loc[1]
+        cytriangles[cytrinum][1][2] = cyvertlist[tritable[cubeindex][i+1]].loc[2]
         
-        cytriangles[cytrinum][2][0] = cyvertlist[tritable[cubeindex][i+2]].x
-        cytriangles[cytrinum][2][1] = cyvertlist[tritable[cubeindex][i+2]].y
-        cytriangles[cytrinum][2][2] = cyvertlist[tritable[cubeindex][i+2]].z
+        cytriangles[cytrinum][2][0] = cyvertlist[tritable[cubeindex][i+2]].loc[0]
+        cytriangles[cytrinum][2][1] = cyvertlist[tritable[cubeindex][i+2]].loc[1]
+        cytriangles[cytrinum][2][2] = cyvertlist[tritable[cubeindex][i+2]].loc[2]
         cytrinum += 1
         
         if cytrinum >= cytrimem - 2:
@@ -416,28 +439,28 @@ cdef void polygonise(float *cycornervalues,point *cycornerpos,float isolevel):
     cyvertlist = NULL  
     #return #triangles
  
-cdef void vertexinterp(point *cyvertlist,float isolevel,point p1,point p2,float valp1,float valp2):
+cdef void vertexinterp(Point *cyvertlist,float isolevel,Point p1,Point p2,float valp1,float valp2):
     if (abs(isolevel-valp1) < 0.00001):
-        cyvertlist.x = p1.x
-        cyvertlist.y = p1.y
-        cyvertlist.z = p1.z
+        cyvertlist.loc[0] = p1.loc[0]
+        cyvertlist.loc[1] = p1.loc[1]
+        cyvertlist.loc[2] = p1.loc[2]
         return
     if (abs(isolevel-valp2) < 0.00001):
-        cyvertlist.x = p2.x
-        cyvertlist.y = p2.y
-        cyvertlist.z = p2.z
+        cyvertlist.loc[0] = p2.loc[0]
+        cyvertlist.loc[1] = p2.loc[1]
+        cyvertlist.loc[2] = p2.loc[2]
         return
     if (abs(valp1-valp2) < 0.00001):
-        cyvertlist.x = p1.x
-        cyvertlist.y = p1.y
-        cyvertlist.z = p1.z
+        cyvertlist.loc[0] = p1.loc[0]
+        cyvertlist.loc[1] = p1.loc[1]
+        cyvertlist.loc[2] = p1.loc[2]
         return
     cdef float mu
     cdef float *p = [0,0,0]
     mu = (isolevel - valp1) / (valp2 - valp1)
-    cyvertlist.x = p1.x + mu * (p2.x - p1.x)
-    cyvertlist.y = p1.y + mu * (p2.y - p1.y)
-    cyvertlist.z = p1.z + mu * (p2.z - p1.z)
+    cyvertlist.loc[0] = p1.loc[0] + mu * (p2.loc[0] - p1.loc[0])
+    cyvertlist.loc[1] = p1.loc[1] + mu * (p2.loc[1] - p1.loc[1])
+    cyvertlist.loc[2] = p1.loc[2] + mu * (p2.loc[2] - p1.loc[2])
  
     #return
  
@@ -451,7 +474,7 @@ cdef void arange(float *result,float start, float stop, float step):
         icount += 1
     #return
  
-cdef void cellloop(point *cyresult,float *p0,float *p1,float *r,int *cyres,int cellr):
+cdef void cellloop(Point *cyresult,float *p0,float *p1,float *r,int *cyres,int cellr):
 
     cdef float *xresult = NULL
     cdef float *yresult = NULL
@@ -469,9 +492,9 @@ cdef void cellloop(point *cyresult,float *p0,float *p1,float *r,int *cyres,int c
         for iy in xrange(cyres[1]):
             arange(&xresult[0],p0[0],p1[0],r[0])
             for ix in xrange(cyres[0]):
-                cyresult[i].x = xresult[ix]
-                cyresult[i].y = yresult[iy]
-                cyresult[i].z = zresult[iz]
+                cyresult[i].loc[0] = xresult[ix]
+                cyresult[i].loc[1] = yresult[iy]
+                cyresult[i].loc[2] = zresult[iz]
                 i += 1
 
     free(xresult)
@@ -482,7 +505,7 @@ cdef void cellloop(point *cyresult,float *p0,float *p1,float *r,int *cyres,int c
     zresult = NULL
     #return
    
-cdef void cornerloop(point *cyresult,float x,float y,float z):
+cdef void cornerloop(Point *cyresult,float x,float y,float z):
     cdef int i = 0
     cdef int ii = 0
     cdef float *cx = [0,0,0,0]
@@ -501,85 +524,49 @@ cdef void cornerloop(point *cyresult,float x,float y,float z):
         cx[2] = x
         cx[3] = x
         for i in xrange(4):
-            cyresult[ii].x = cx[i]
-            cyresult[ii].y = cy[i]
-            cyresult[ii].z = cz[icz]
+            cyresult[ii].loc[0] = cx[i]
+            cyresult[ii].loc[1] = cy[i]
+            cyresult[ii].loc[2] = cz[icz]
             ii += 1
     #return
- 
-cpdef isosurface(p0,p1,resolution,float isolevel):
-    global cytriangles,cytrimem,cytrinum,cysend
-    cytriangles = <float ***>malloc( cytrimem * cython.sizeof(double) )
+
+cpdef isosurface(p0,p1,resolution,float isolevel,ploc,psize):
+    global cytriangles,cytrimem,cytrinum,cypar,cyparnum
     
     cdef float *cyp0 = [p0[0],p0[1],p0[2]]
     cdef float *cyp1 = [p1[0],p1[1],p1[2]]
     cdef int *cyres = [resolution[0],resolution[1],resolution[2]]
     cdef int cellr = <int>(resolution[0] * resolution[1] * resolution[2])
-    
-    cdef int i = 0
     cdef int tri = 0
-    cdef int ii = 0
-    cdef float x = 0
-    cdef float y = 0
-    cdef float z = 0
-    cdef float cx = 0
-    cdef float cy = 0
-    cdef float cz = 0
-    cdef float *r = [0,0,0]
-    
-    cdef point *cornerpos = NULL
-    cdef float *cornervalues = NULL
-    cdef point *celll = NULL
-    cdef point *cornerl = NULL
-    
-    cornerpos = <point *>malloc( 8 * cython.sizeof(point) )
-    cornerl = <point *>malloc( 8 * cython.sizeof(point) )
-    
-    celll = <point *>malloc( cellr * cython.sizeof(point) )
-    
-    cornervalues = <float *>malloc( 8 * cython.sizeof(float) )
-    
-    for i in range(3):
-        r[i] = (cyp1[i]-cyp0[i])/cyres[i]
-
-    cellloop(&celll[0],cyp0,cyp1,r,cyres,cellr)
-
-    for i in xrange(cellr):
-        x = celll[i].x
-        y = celll[i].y
-        z = celll[i].z
-        cornerloop(&cornerl[0],r[0],r[1],r[2])
-        for ii in xrange(8):
-            cx = cornerl[ii].x
-            cy = cornerl[ii].y
-            cz = cornerl[ii].z
-            cornerpos[ii].x = x+cx
-            cornerpos[ii].y = y+cy
-            cornerpos[ii].z = z+cz
-            cornervalues[ii] = scalarfield(cornerpos[ii])
-        polygonise(cornervalues,cornerpos,isolevel)
-    
-    #tmptriangles = []
-    '''
-    for tri in range(cytrinum):
-        a = (cytriangles[tri][0][0],cytriangles[tri][0][1],cytriangles[tri][0][2])
-        b = (cytriangles[tri][1][0],cytriangles[tri][1][1],cytriangles[tri][1][2])
-        c = (cytriangles[tri][2][0],cytriangles[tri][2][1],cytriangles[tri][2][2])
-        tmptriangles.append((a,b,c))
-    '''
     cdef int vert = 0
     cdef int pt = 0
-    i = 0
+    cdef int i = 0
+    
+    cyparnum = len(psize)
+    cypar = <Particle *>malloc( (cyparnum + 1) * cython.sizeof(Particle) )
+    
+    #print psize
+    for i in xrange(cyparnum):
+        cypar[i].id = i
+        cypar[i].size = psize[i]
+        cypar[i].loc[0] = ploc[i][0]
+        cypar[i].loc[1] = ploc[i][1]
+        cypar[i].loc[2] = ploc[i][2]
+        #print i
+    
+    build(cyp0,cyp1,cyres,cellr,isolevel)
+    
     tmptriangles = [666.666] * cytrinum * 3 * 3
-    #cysend = <float *>malloc( (cytrinum * 3 * 3) * cython.sizeof(float) )
+    i = 0
     for tri in range(cytrinum):
         for vert in range(3):
             for pt in range(3):
                 tmptriangles[i] = cytriangles[tri][vert][pt]
-                #cysend[i] = cytriangles[tri][vert][pt]
-                i += 1                
+                i += 1
+                #print i,cytrinum * 3 * 3
     #print(i,cytrinum * 3 * 3,cytrinum)
-    
+    #print 'Done'
+
     for tri in range(cytrinum):
         for i in range(3):
             free(cytriangles[tri][i])
@@ -589,8 +576,94 @@ cpdef isosurface(p0,p1,resolution,float isolevel):
     free(cytriangles)
     cytriangles = NULL
     cytrimem = 40
-    pynum = cytrinum * 3 * 3
     cytrinum = 0
+    #free(cypar)
+    #cypar = NULL
+    #cyparnum = 0
+
+    return tmptriangles
+
+    
+cdef void build(float *cyp0,float *cyp1,int *cyres,int cellr,float isolevel):
+    global cytriangles,cytrimem,cytrinum,cypar,cyparnum
+    cytriangles = <float ***>malloc( cytrimem * cython.sizeof(double) )
+    
+    #cdef float *cyp0 = [p0[0],p0[1],p0[2]]
+    #cdef float *cyp1 = [p1[0],p1[1],p1[2]]
+    #cdef int *cyres = [resolution[0],resolution[1],resolution[2]]
+    #cdef int cellr = <int>(resolution[0] * resolution[1] * resolution[2])
+    
+    cdef int i = 0
+    cdef int ii = 0
+    cdef float x = 0
+    cdef float y = 0
+    cdef float z = 0
+    cdef float cx = 0
+    cdef float cy = 0
+    cdef float cz = 0
+    cdef float *r = [0,0,0]
+    cdef float sx = 0
+    cdef float sy = 0
+    cdef float sz = 0
+    cdef int tz = 0
+    cdef int ty = 0
+    cdef int tx = 0
+    cdef float ttz = 0
+    cdef float tty = 0
+    cdef float ttx = 0
+    
+    cdef Point *cornerpos = NULL
+    cdef float *cornervalues = NULL
+    cdef Point *celll = NULL
+    cdef Point *cornerl = NULL
+    
+    
+    cornerpos = <Point *>malloc( 8 * cython.sizeof(Point) )
+    cornerl = <Point *>malloc( 8 * cython.sizeof(Point) )
+    
+    #celll = <Point *>malloc( cellr * cython.sizeof(Point) )
+    
+    cornervalues = <float *>malloc( 8 * cython.sizeof(float) )
+    
+    for i in range(3):
+        r[i] = (cyp1[i]-cyp0[i])/cyres[i]
+
+    #cellloop(&celll[0],cyp0,cyp1,r,cyres,cellr)
+    
+    print 'ceil 2.25 = ', ceil(2.25)
+    print 'floor 2.25 = ', floor(2.25)
+    
+    for i in xrange(cellr):
+        #x = celll[i].loc[0]
+        #y = celll[i].loc[1]
+        #z = celll[i].loc[2]
+        #'''
+        sx = abs((cyp0[0] - cyp1[0])) / cyres[0]
+        sy = abs((cyp0[1] - cyp1[1])) / cyres[1]
+        sz = abs((cyp0[2] - cyp1[2])) / cyres[2]
+        tz = int(i/(cyres[2]*cyres[2]))  #(((int(i/(cyres[2]*cyres[2]))) * sz) + cyp0[2])
+        ty = int((i-(tz*(cyres[1]*cyres[1])))/cyres[1])
+        tx = int((i-(tz*(cyres[0]*cyres[0])))-(ty * cyres[0]))
+        ttz = ((tz * sz) + cyp0[2])
+        tty = ((ty * sy) + cyp0[1])
+        ttx = ((tx * sx) + cyp0[0])
+        x = ttx
+        y = tty
+        z = ttz
+        #'''
+        #print i,':',x,y,z," | ",tx,ty,tz," | ",ttx,tty,ttz
+        cornerloop(&cornerl[0],r[0],r[1],r[2])
+        for ii in xrange(8):
+            cx = cornerl[ii].loc[0]
+            cy = cornerl[ii].loc[1]
+            cz = cornerl[ii].loc[2]
+            cornerpos[ii].loc[0] = x+cx
+            cornerpos[ii].loc[1] = y+cy
+            cornerpos[ii].loc[2] = z+cz
+            cornervalues[ii] = scalarfield(cornerpos[ii])
+        polygonise(cornervalues,cornerpos,isolevel)
+    
+
     free(cornerl)
     cornerl = NULL
     free(cornerpos)
@@ -599,9 +672,72 @@ cpdef isosurface(p0,p1,resolution,float isolevel):
     cornervalues = NULL
     free(celll)
     celll = NULL
-    #print(cysend[0],cysend[1],cysend[2])
-    return tmptriangles #(pynum,<int>&cysend[0]) 
 
+    return
+
+
+cdef float xparam(Point a):
+    return a.loc[0]
+    
+cdef float yparam(Point a):
+    return a.loc[1]
+    
+cdef float zparam(Point a):
+    return a.loc[2]
+
+    
+cdef float idparam(Point a):
+    return a.id
+
+    
+cdef void quick_sort(Point *a, int n,f_type func):
+    if (n < 2):
+        return
+    cdef Point t
+    cdef float p = func(a[n / 2])#a[n / 2].loc[0]
+    cdef Point *l = a
+    cdef Point *r = a + n - 1
+    while l <= r:
+        if func(l[0]) < p:
+            l += 1
+            continue
+        
+        if func(r[0]) > p:
+            r -= 1
+            continue #// we need to check the condition (l <= r) every time we change the value of l or r
+        
+        t = l[0]
+        l[0] = r[0]
+        #l[0], r[0] = r[0], l[0]  # suggested by stephan to remove temp variable t but slower
+        l += 1
+        r[0] = t
+        r -= 1
+    
+    quick_sort(a, r - a + 1,func)
+    quick_sort(l, a + n - l,func)
+
+    
+cdef int bsearch(Point *A,int n, float x,char searchFirst):
+    cdef int low = 0
+    cdef int high = n-1
+    cdef int result = -1
+    cdef int mid = 0
+    
+    while low <= high:
+        mid = (low+high)/2
+        if A[mid].loc[0] == x:
+            result = mid
+            if searchFirst == 1:
+                high = mid-1
+            else:
+                low = mid+1
+        elif x < A[mid].loc[0]:
+            high = mid-1
+        else:
+            low = mid+1
+    return result
+    
+    
 cpdef freemem():
     global cysend
     print(cysend[0],cysend[1],cysend[2])
@@ -610,7 +746,11 @@ cpdef freemem():
     print('memory freed')
     return True
     
-cdef struct point:
-    float x
-    float y
-    float z
+cdef struct Point:
+    int id
+    float loc[3]
+
+cdef struct Particle:
+    int id
+    float size
+    float loc[3]
