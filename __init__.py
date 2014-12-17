@@ -138,47 +138,15 @@ def isosurf(context):
             for par in range(psysize):
                 if psys[par].alive_state == 'ALIVE':
                     size = psys[par].size * sizem
-                    if psys[par].location.x - size < xmin:
-                        xmin = psys[par].location.x - size
-                    if psys[par].location.x + size > xmax:
-                        xmax = psys[par].location.x + size
-                    if psys[par].location.y - size < ymin:
-                        ymin = psys[par].location.y - size
-                    if psys[par].location.y + size > ymax:
-                        ymax = psys[par].location.y + size
-                    if psys[par].location.z - size < zmin:
-                        zmin = psys[par].location.z - size
-                    if psys[par].location.z + size > zmax:
-                        zmax = psys[par].location.z + size
                     ploc.append(psys[par].location)
                     psize.append(size)
                     
         if len(psize) > 0:
-            lx = xmax - xmin
-            ly = ymax - ymin
-            lz = zmax - zmin
-
-            xres = (ceil(lx/res) - floor(lx/res)) * res
-            xmax += xres
-            xres = int(lx / res)
-            yres = (ceil(ly/res) - floor(ly/res)) * res
-            ymax += yres
-            yres = int(ly / res)
-            zres = (ceil(lz/res) - floor(lz/res)) * res
-            zmax += zres
-            zres = int(lz / res)
-
-            print('res:',res,'xmin:',xmin,'xmax:',xmax,' lx:',lx,' xres:',xres)
-            print('res:',res,'ymin:',ymin,'ymax:',ymax,' ly:',ly,' yres:',yres)
-            print('res:',res,'zmin:',zmin,'zmax:',zmax,' lz:',lz,' zres:',zres)
-
-            p0 = xmin,ymin,zmin
-            p1 = xmax,ymax,zmax
-            #res=200
-            resolution=(xres,yres,zres)
+        
             isolevel=0.0
             print('  pack particles:',time.clock() - stime,'sec')
-            a = mciso.isosurface(p0,p1,resolution,isolevel,ploc,psize)
+            
+            a = mciso.isosurface(res,isolevel,ploc,psize)
 
             print('  mciso:',time.clock() - stime,'sec')
             stime = time.clock()
