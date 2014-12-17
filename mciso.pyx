@@ -540,13 +540,9 @@ cdef void cornerloop(Point *cyresult,float x,float y,float z)nogil:
             ii += 1
     #return
 
-cpdef isosurface(p0,p1,resolution,float isolevel,ploc,psize):
+cpdef isosurface(float res,float isolevel,ploc,psize):
     global cytriangles,cytrimem,cytrinum,cypar,cyparnum
     
-    cdef float *cyp0 = [p0[0],p0[1],p0[2]]
-    cdef float *cyp1 = [p1[0],p1[1],p1[2]]
-    cdef int *cyres = [resolution[0],resolution[1],resolution[2]]
-    cdef long cellr = <unsigned long>(resolution[0] * resolution[1] * resolution[2])
     cdef long tri = 0
     cdef long vert = 0
     cdef long pt = 0
@@ -558,28 +554,28 @@ cpdef isosurface(p0,p1,resolution,float isolevel,ploc,psize):
     cdef float x = 0
     cdef float y = 0
     cdef float z = 0
-    cdef int *div = [cyres[0]/12,cyres[1]/12,cyres[2]/12]
-    if div[0] < 1:
-        div[0] = 1
-    if div[1] < 1:
-        div[1] = 1
-    if div[2] < 1:
-        div[2] = 1
-    cdef int blocknum = div[0] * div[1] * div[2]
+    
+    '''-------------------------------------
+    from math import floor,ceil
+    print('---')
+    xmax = 148.19
+    ymax = -12.33
+    res = 0.3
+    print('Original:',xmax,ymax)
+    b = ceil(xmax/res)*res
+    c = floor(ymax/res)*res
+    print('Arondi:',b,c)
+    print('Nombres',b/res,c/res)
+    print('Distance',b - c , 'Resolution:',(b-c)/res)
+    -----------------------------------------'''
+    
     cdef float timer1 = 0
     cdef float timer2 = 0
     
     timer2 = clock()
     cyparnum = len(psize)
     cypar = <Particle *>malloc( (cyparnum + 1) * cython.sizeof(Particle) )
-    cytrimem = <int *>malloc( blocknum * cython.sizeof(int) )
-    cytrinum = <int *>malloc( blocknum * cython.sizeof(int) )
-    cytriangles = <float ****>malloc( blocknum * cython.sizeof(double) )
-    for i in range(blocknum):
-        cytrimem[i] = 40
-        cytrinum[i] = 0
-        cytriangles[i] = <float ***>malloc( cytrimem[i] * cython.sizeof(double) )
-        
+    
     #print psize
     for i in xrange(cyparnum):
         cypar[i].id = i
@@ -588,6 +584,52 @@ cpdef isosurface(p0,p1,resolution,float isolevel,ploc,psize):
         cypar[i].loc[1] = ploc[i][1]
         cypar[i].loc[2] = ploc[i][2]
         #print i
+    cdef float xmin = FLT_MAX
+    cdef float xmax = FLT_MIN
+    cdef float ymin = FLT_MAX
+    cdef float ymax = FLT_MIN 
+    cdef float zmin = FLT_MAX
+    cdef float zmax = FLT_MIN 
+    for i in xrange(cyparnum):
+        if cypar[i].loc[0] - cypar[i].size < xmin:
+            xmin = cypar[i].loc[0] - cypar[i].size
+        if cypar[i].loc[0] + cypar[i].size > xmax:
+            xmax = cypar[i].loc[0] + cypar[i].size
+        if cypar[i].loc[1] - cypar[i].size < ymin:
+            ymin = cypar[i].loc[1] - cypar[i].size
+        if cypar[i].loc[1] + cypar[i].size > ymax:
+            ymax = cypar[i].loc[1] + cypar[i].size
+        if cypar[i].loc[2] - cypar[i].size < zmin:
+            zmin = cypar[i].loc[2] - cypar[i].size
+        if cypar[i].loc[2] + cypar[i].size > zmax:
+            zmax = cypar[i].loc[2] + cypar[i].size
+    
+    cdef float *cyp0 = [floor(xmin/res)*res,floor(ymin/res)*res,floor(zmin/res)*res]
+    cdef float *cyp1 = [ceil(xmax/res)*res,ceil(ymax/res)*res,ceil(zmax/res)*res]
+    cdef int *resolution = [<int>((cyp1[0]-cyp0[0])/res),<int>((cyp1[1]-cyp0[1])/res),<int>((cyp1[2]-cyp0[2])/res)]
+    cdef int *cyres = [resolution[0],resolution[1],resolution[2]]
+    cdef long cellr = <unsigned long>(resolution[0] * resolution[1] * resolution[2])
+
+    cdef int *div = [1,1,1]#[cyres[0]/12,cyres[1]/12,cyres[2]/12]
+    if div[0] < 1:
+        div[0] = 1
+    if div[1] < 1:
+        div[1] = 1
+    if div[2] < 1:
+        div[2] = 1
+    cdef int blocknum = div[0] * div[1] * div[2]    
+            
+    print('MIN:',cyp0[0],cyp0[1],cyp0[2])
+    print('MAX:',cyp1[0],cyp1[1],cyp1[2])
+    print('3DRES:',cyres[0],cyres[1],cyres[2])
+    print('RES:',(cyp1[0]-cyp0[0])/cyres[0],(cyp1[1]-cyp0[1])/cyres[1],(cyp1[2]-cyp0[2])/cyres[2])
+    cytrimem = <int *>malloc( blocknum * cython.sizeof(int) )
+    cytrinum = <int *>malloc( blocknum * cython.sizeof(int) )
+    cytriangles = <float ****>malloc( blocknum * cython.sizeof(double) )
+    for i in range(blocknum):
+        cytrimem[i] = 40
+        cytrinum[i] = 0
+        cytriangles[i] = <float ***>malloc( cytrimem[i] * cython.sizeof(double) )
     
     
     cdef Point *cyrange0 = NULL
