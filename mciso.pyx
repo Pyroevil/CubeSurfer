@@ -30,7 +30,8 @@ cdef int *cytrinum = NULL
 cdef float ****cytriangles = NULL
 cdef float *cysend = NULL
 cdef Particle *cypar = NULL
-cdef unsigned long long cyparnum = 0
+cdef unsigned int cyparnum = 0
+
 
 cdef int *edgetable=[0x0, 0x109, 0x203, 0x30a, 0x406, 0x50f, 0x605, 0x70c,
                                 0x80c, 0x905, 0xa0f, 0xb06, 0xc0a, 0xd03, 0xe09, 0xf00,
@@ -541,7 +542,7 @@ cdef void cornerloop(Point *cyresult,float x,float y,float z)nogil:
     #return
 
 cpdef isosurface(float res,float isolevel,ploc,psize):
-    global cytriangles,cytrimem,cytrinum,cypar,cyparnum
+    global cytriangles,cytrimem,cytrinum,cypar,cyparnum,#cblock,#cblocknum,#cblockmem
     
     cdef long tri = 0
     cdef long vert = 0
@@ -575,21 +576,23 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     timer2 = clock()
     cyparnum = len(psize)
     cypar = <Particle *>malloc( (cyparnum + 1) * cython.sizeof(Particle) )
+    cdef unsigned int *cyparid = <unsigned int *>malloc( (cyparnum + 1) * cython.sizeof(int) )
     
     #print psize
     for i in xrange(cyparnum):
+        cyparid[i] = i
         cypar[i].id = i
         cypar[i].size = psize[i]
         cypar[i].loc[0] = ploc[i][0]
         cypar[i].loc[1] = ploc[i][1]
         cypar[i].loc[2] = ploc[i][2]
         #print i
-    cdef float xmin = FLT_MAX
-    cdef float xmax = FLT_MIN
-    cdef float ymin = FLT_MAX
-    cdef float ymax = FLT_MIN 
-    cdef float zmin = FLT_MAX
-    cdef float zmax = FLT_MIN 
+    cdef float xmin = 10000000#FLT_MAX
+    cdef float xmax = -10000000#FLT_MIN
+    cdef float ymin = 10000000#FLT_MAX
+    cdef float ymax = -10000000#FLT_MIN 
+    cdef float zmin = 10000000#FLT_MAX
+    cdef float zmax = -10000000#FLT_MIN 
     for i in xrange(cyparnum):
         if cypar[i].loc[0] - cypar[i].size < xmin:
             xmin = cypar[i].loc[0] - cypar[i].size
@@ -604,87 +607,81 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
         if cypar[i].loc[2] + cypar[i].size > zmax:
             zmax = cypar[i].loc[2] + cypar[i].size
     
+    print xmin,ymin,zmin
+    print xmax,ymax,zmax
     cdef float *cyp0 = [floor(xmin/res)*res,floor(ymin/res)*res,floor(zmin/res)*res]
     cdef float *cyp1 = [ceil(xmax/res)*res,ceil(ymax/res)*res,ceil(zmax/res)*res]
+    cyp0[0] = cyp0[0] - (res * 2)
+    cyp0[1] = cyp0[1] - (res * 2)
+    cyp0[2] = cyp0[2] - (res * 2)
+    cyp1[0] = cyp1[0] + (res * 2)
+    cyp1[1] = cyp1[1] + (res * 2)
+    cyp1[2] = cyp1[2] + (res * 2)
     cdef int *resolution = [<int>((cyp1[0]-cyp0[0])/res),<int>((cyp1[1]-cyp0[1])/res),<int>((cyp1[2]-cyp0[2])/res)]
     cdef int *cyres = [resolution[0],resolution[1],resolution[2]]
     cdef long cellr = <unsigned long>(resolution[0] * resolution[1] * resolution[2])
-
-    cdef int *div = [1,1,1]#[cyres[0]/12,cyres[1]/12,cyres[2]/12]
-    if div[0] < 1:
-        div[0] = 1
-    if div[1] < 1:
-        div[1] = 1
-    if div[2] < 1:
-        div[2] = 1
-    cdef int blocknum = div[0] * div[1] * div[2]    
-            
+    
+    print('RES:',res)
     print('MIN:',cyp0[0],cyp0[1],cyp0[2])
     print('MAX:',cyp1[0],cyp1[1],cyp1[2])
     print('3DRES:',cyres[0],cyres[1],cyres[2])
     print('RES:',(cyp1[0]-cyp0[0])/cyres[0],(cyp1[1]-cyp0[1])/cyres[1],(cyp1[2]-cyp0[2])/cyres[2])
-    cytrimem = <int *>malloc( blocknum * cython.sizeof(int) )
-    cytrinum = <int *>malloc( blocknum * cython.sizeof(int) )
-    cytriangles = <float ****>malloc( blocknum * cython.sizeof(double) )
-    for i in range(blocknum):
+    
+    cdef int cblocknum = 0
+    cdef int cblockmem = 0
+    cdef Block *cblock = NULL
+    cblocknum = 0
+    cblockmem = 16
+    cblock = <Block *>malloc( cblockmem * cython.sizeof(Block) )
+
+    #print cyp0[0],cyp0[1],cyp0[2]
+    #print cyp1[0],cyp1[1],cyp1[2]
+    #print cyres[0],cyres[1],cyres[2]
+    cdef int blocksize = 8
+    SpacePartition(&cblock,&cblocknum,&cblockmem,&cypar[0],cyparnum,&cyparid[0],cyp0,cyp1,cyres,res,blocksize,0)
+    
+    cytrimem = <int *>malloc( cblocknum * cython.sizeof(int) )
+    cytrinum = <int *>malloc( cblocknum * cython.sizeof(int) )
+    cytriangles = <float ****>malloc( cblocknum * cython.sizeof(double) )
+    for i in range(cblocknum):
         cytrimem[i] = 40
         cytrinum[i] = 0
         cytriangles[i] = <float ***>malloc( cytrimem[i] * cython.sizeof(double) )
-    
-    
-    cdef Point *cyrange0 = NULL
-    cdef Point *cyrange1 = NULL
-    cyrange0 = <Point *>malloc( blocknum * cython.sizeof(Point) )
-    cyrange1 = <Point *>malloc( blocknum * cython.sizeof(Point) )
-    #cdef float cyrange0[8][3]
-    #cdef float cyrange1[8][3]
-    
-    i = 0
-    
-    x = fabs(cyp0[0] - cyp1[0])/div[0]
-    y = fabs(cyp0[1] - cyp1[1])/div[1]
-    z = fabs(cyp0[2] - cyp1[2])/div[2]
-    
-    for ix in range(div[0]):
-        for iy in range(div[1]):
-            for iz in range(div[2]):
-                cyrange0[i].loc[0] = cyp0[0] + (x * ix)
-                cyrange0[i].loc[1] = cyp0[1] + (y * iy)
-                cyrange0[i].loc[2] = cyp0[2] + (z * iz)
-                
-                cyrange1[i].loc[0] = cyp0[0] + (x * (ix+1))
-                cyrange1[i].loc[1] = cyp0[1] + (y * (iy+1))
-                cyrange1[i].loc[2] = cyp0[2] + (z * (iz+1))
-                #print "(",cyrange0[i][0],cyrange0[i][1],cyrange0[i][2],")(",cyrange1[i][0],cyrange1[i][1],cyrange1[i][2],")"
-                i += 1
-    cyres[0] = cyres[0] / div[0]
-    cyres[1] = cyres[1] / div[1]
-    cyres[2] = cyres[2] / div[2]
-    i = 10
-    
+
     timer2 = clock() - timer2
     timer1 = clock()
     
     print ' Get Particles:',timer2,'s'
     
-    with nogil:
-        for i in prange(blocknum,schedule='dynamic',chunksize=1,num_threads=12):
-            build(cyrange0[i].loc,cyrange1[i].loc,cyres,cellr,isolevel,i)
+    #print cblocknum,cblockmem
     
-    #for i in range(blocknum):
-            #build(cyrange0[i].loc,cyrange1[i].loc,cyres,cellr,isolevel,i)
+    #for i in range(cblocknum):
+        #print 'loop',cblock[i].id,cblock[i].p0[0],cblock[i].p0[1],cblock[i].p0[2],'/',cblock[i].p1[0],cblock[i].p1[1],cblock[i].p1[2],'/',cblock[i].res[0],cblock[i].res[1],cblock[i].res[2]
+    
+    
+    #build(cyp0,cyp1,cyres,cellr,isolevel,i)
+    with nogil:
+        for i in prange(cblocknum,schedule='dynamic',chunksize=1,num_threads=12):
+            #build(cyp0,cyp1,cyres,cellr,isolevel,i)
+            #build(cblock[i].p0,cblock[i].p1,cblock[i].res,cellr,isolevel,i)
+            build2(&cblock[i].par[0],cblock[i].parnum,cblock[i].p0,cblock[i].p1,cblock[i].res,cellr,isolevel,i,res)
+    
+    #print '---'
+    #for i in range(cblocknum):
+        #print 'test2',cblock[i].id,cblock[i].p0[0],cblock[i].p0[1],cblock[i].p0[2],'/',cblock[i].p1[0],cblock[i].p1[1],cblock[i].p1[2],'/',cblock[i].res[0],cblock[i].res[1],cblock[i].res[2]
+        #build(cblock[i].p0,cblock[i].p1,cblock[i].res,cellr,isolevel,i)
     #build(cyp0,cyp1,cyres,cellr,isolevel)
     
     print ' calculate geometry:',clock() - timer1,'s'
     timer1 = clock()
     
     totaltri = 0
-    for i in range(blocknum):
+    for i in range(cblocknum):
         totaltri += cytrinum[i]
     
     tmptriangles = [666.666] * totaltri * 3 * 3
     i = 0
-    for ii in range(blocknum):
+    for ii in range(cblocknum):
         for tri in range(cytrinum[ii]):
             for vert in range(3):
                 for pt in range(3):
@@ -693,7 +690,7 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
                     #print i,cytrinum * 3 * 3
     #print(i,cytrinum * 3 * 3,cytrinum)
 
-    for ii in range(blocknum):
+    for ii in range(cblocknum):
         for tri in range(cytrinum[ii]):
             for i in range(3):
                 free(cytriangles[ii][tri][i])
@@ -702,6 +699,8 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
             cytriangles[ii][tri] = NULL
         free(cytriangles[ii])
         cytriangles[ii] = NULL
+        free(cblock[ii].par)
+        cblock[ii].par = NULL
     free(cytriangles)
     cytriangles = NULL
     free(cytrimem)
@@ -711,9 +710,164 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     free(cypar)
     cypar = NULL
     cyparnum = 0
+    free(cblock)
+    cblock = NULL
+    cblockmem = 0
+    cblocknum = 0
 
     print ' send to pyarray:',clock() - timer1,'s'
     return tmptriangles
+
+
+cdef void SpacePartition(Block **cblock,int *cblocknum,int *cblockmem,Particle *cypar,int cyparnum,unsigned int *cyparid,float *cyp0,float *cyp1,int *cyres,float res,int size,int depth)nogil:
+    global #cblock,#cblocknum,#cblockmem
+    cdef int axis = depth % 3
+    cdef int i = 0
+    cdef int id = 0
+    if cyres[0] <= size and cyres[1] <= size and cyres[2] <= size:
+        if cyparnum <= 0:
+            return
+        #with gil:
+        #print cblocknum[0],cblockmem[0]
+        cblock[0][cblocknum[0]].id = cblocknum[0]
+        #print 'fnc:',cblock[0][cblocknum[0]].id,cyp0[0],cyp0[1],cyp0[2],'/',cyp1[0],cyp1[1],cyp1[2],'/',cyres[0],cyres[1],cyres[2],'/',cyparnum
+        #print 'mem adress before:',<long long>cblock[0]
+        if cblocknum[0] >= cblockmem[0] - 2:
+            #print 'num over mem'
+            cblockmem[0] = <int>(<double>cblockmem[0] * 1.5)
+            #print 'mem ajusted to', cblockmem[0]
+            cblock[0] = <Block *>realloc(cblock[0], cblockmem[0] * cython.sizeof(Block))
+            #print 'mem adress after:',<long long>cblock[0]
+            #print 'realloc'
+            #print cblock[0][5].id
+            #print cblock[0][cblocknum[0]].id
+        cblock[0][cblocknum[0]].p0[0] = cyp0[0]
+        cblock[0][cblocknum[0]].p0[1] = cyp0[1]
+        cblock[0][cblocknum[0]].p0[2] = cyp0[2]
+        cblock[0][cblocknum[0]].p1[0] = cyp1[0]
+        cblock[0][cblocknum[0]].p1[1] = cyp1[1]
+        cblock[0][cblocknum[0]].p1[2] = cyp1[2]
+        cblock[0][cblocknum[0]].res[0] = cyres[0]
+        cblock[0][cblocknum[0]].res[1] = cyres[1]
+        cblock[0][cblocknum[0]].res[2] = cyres[2]
+        cblock[0][cblocknum[0]].parnum = cyparnum
+        cblock[0][cblocknum[0]].par = <unsigned int*>malloc( cblock[0][cblocknum[0]].parnum * cython.sizeof(int) )
+        #print cblock[0][cblocknum[0]].parnum
+
+        for i in range(cblock[0][cblocknum[0]].parnum):
+            #print cyparid[i]
+            cblock[0][cblocknum[0]].par[i] = cyparid[i]
+
+        #print '    >Out axis:',axis,'depth:',depth
+        cblocknum[0] += 1
+        return
+        
+    if cyres[axis] <= size:
+        #with gil:
+        #print '    >Axis ',[axis],' finish'
+        #print cyparnum,cblocknum[0],cblockmem[0]
+        SpacePartition(&cblock[0],&cblocknum[0],&cblockmem[0],&cypar[0],cyparnum,&cyparid[0],cyp0,cyp1,cyres,res,size,depth + 1)
+        return
+
+    cdef int m = cyres[axis] / 2
+    cdef int *lcyres = [cyres[0],cyres[1],cyres[2]]
+    cdef int *rcyres = [cyres[0],cyres[1],cyres[2]]
+    lcyres[axis] = m
+    rcyres[axis] = cyres[axis] - m
+    cdef float *lcyp0 = [cyp0[0],cyp0[1],cyp0[2]]
+    cdef float *lcyp1 = [cyp1[0],cyp1[1],cyp1[2]]
+    lcyp1[axis] = lcyp0[axis] + (res * m)
+    cdef float *rcyp0 = [cyp0[0],cyp0[1],cyp0[2]]
+    cdef float *rcyp1 = [cyp1[0],cyp1[1],cyp1[2]]
+    rcyp0[axis] = lcyp1[axis]
+    #rcyp1[axis] = cyp1[axis]
+    
+    cdef unsigned int *parL = <unsigned int *>malloc( (cyparnum + 1) * cython.sizeof(int) )
+    cdef int parnumL = 0
+    cdef unsigned int *parR = <unsigned int *>malloc( (cyparnum + 1) * cython.sizeof(int) )
+    cdef int parnumR = 0
+    cdef float parsize = 0
+    for i in range(cyparnum):
+        id = cyparid[i]
+        parsize = cypar[id].size + res
+        #print cypar[id].size
+        if cypar[id].loc[axis] <= lcyp1[axis] or (cypar[id].loc[axis] - parsize) <= lcyp1[axis]:
+            #with gil:
+                #print '    ',id,'axis:',axis,'p0:',lcyp0[axis],'p1:',lcyp1[axis],'par pos:',cypar[id].loc[axis],'par min:',cypar[id].loc[axis] - parsize,'par max:',cypar[id].loc[axis] + parsize
+            parL[parnumL] = id
+            parnumL += 1
+        if cypar[id].loc[axis] >= rcyp0[axis] or (cypar[id].loc[axis] + parsize) >= rcyp0[axis]:
+            parR[parnumR] = id
+            parnumR += 1
+            
+        
+    SpacePartition(&cblock[0],&cblocknum[0],&cblockmem[0],&cypar[0],parnumL,&parL[0],lcyp0,lcyp1,lcyres,res,size,depth + 1)
+    
+    SpacePartition(&cblock[0],&cblocknum[0],&cblockmem[0],&cypar[0],parnumR,&parR[0],rcyp0,rcyp1,rcyres,res,size,depth + 1)
+    free(parL)
+    parL = NULL
+    free(parR)
+    parR = NULL
+    return
+
+cdef void build2(unsigned int *cyparid,int cyparnum,float *cyp0,float *cyp1,int *cyres,long cellr,float isolevel,int blocknum,float res)nogil:
+    global cytriangles,cytrimem,cytrinum,cypar
+    
+    cdef float x = 0.0
+    cdef float y = 0.0
+    cdef float z = 0.0
+    cdef float cx = 0.0
+    cdef float cy = 0.0
+    cdef float cz = 0.0
+    
+    cdef int cblocknum = 0
+    cdef int cblockmem = 0
+    cdef Block *cblock = NULL
+    cblocknum = 0
+    cblockmem = 16
+    cblock = <Block *>malloc( cblockmem * cython.sizeof(Block) )
+    cdef int blocksize = 1
+    SpacePartition(&cblock,&cblocknum,&cblockmem,&cypar[0],cyparnum,&cyparid[0],cyp0,cyp1,cyres,res,blocksize,0)
+    #SpacePartition(&cblock,&cblocknum,&cblockmem,&cypar[0],cyparnum,&cyparid[0],cyp0,cyp1,cyres,res,blocksize,0)
+    cdef Point *cornerpos = NULL
+    cdef float *cornervalues = NULL
+    cdef Point *cornerl = NULL
+    cornerpos = <Point *>malloc( 8 * cython.sizeof(Point) )
+    cornerl = <Point *>malloc( 8 * cython.sizeof(Point) )
+    cornervalues = <float *>malloc( 8 * cython.sizeof(float) )
+    
+    cdef float *r = [res,res,res]
+    for i in range(cblocknum):
+        x = cblock[i].p0[0]
+        y = cblock[i].p0[1]
+        z = cblock[i].p0[2]
+        cornerloop(&cornerl[0],r[0],r[1],r[2])
+        #with gil:
+            #print 'i:',i,'  ',cblock[i].p0[0],cblock[i].p0[1],cblock[i].p0[2],'/',cblock[i].p1[0],cblock[i].p1[1],cblock[i].p1[2],' parnum:',cblock[i].parnum
+        for ii in xrange(8):
+            cx = cornerl[ii].loc[0]
+            cy = cornerl[ii].loc[1]
+            cz = cornerl[ii].loc[2]
+            cornerpos[ii].loc[0] = x+cx
+            cornerpos[ii].loc[1] = y+cy
+            cornerpos[ii].loc[2] = z+cz
+            cornervalues[ii] = scalarfield(cornerpos[ii],cblock[i].par,cblock[i].parnum)
+        polygonise(cornervalues,cornerpos,isolevel,blocknum)
+    
+    for i in range(cblocknum):
+        free(cblock[i].par)
+        cblock[i].par = NULL
+    free(cblock)
+    cblock = NULL
+    free(cornerl)
+    cornerl = NULL
+    free(cornerpos)
+    cornerpos = NULL
+    free(cornervalues)
+    cornervalues = NULL
+
+ 
+    return
 
     
 cdef void build(float *cyp0,float *cyp1,int *cyres,long cellr,float isolevel,int blocknum)nogil:
@@ -782,116 +936,17 @@ cdef void build(float *cyp0,float *cyp1,int *cyres,long cellr,float isolevel,int
     
     ##with gil:
         #timer1 = clock()
-    cdef long cellmem = 4
-    cdef long cellnum = 0
-    cdef long ncellnum = 0
-    cdef Cell *cells = <Cell *>malloc( cellmem * cython.sizeof(Cell) )
-    sx = fabs((cyp1[0] - cyp0[0])) / cyres[0]
-    sy = fabs((cyp1[1] - cyp0[1])) / cyres[1]
-    sz = fabs((cyp1[2] - cyp0[2])) / cyres[2]
-    #test = []
-    #'''
-    cdef long test = 0
-    for i in range(cyparnum):
-        x = (cypar[i].loc[0] - cyp0[0]) / sx
-        y = (cypar[i].loc[1] - cyp0[1]) / sy
-        z = (cypar[i].loc[2] - cyp0[2]) / sz
-        xsize = cypar[i].size / sx
-        ysize = cypar[i].size / sy
-        zsize = cypar[i].size / sz
-        xmin = <long>(floor(x - xsize)-1)
-        xmax = <long>(ceil(x + xsize)+1)
-        ymin = <long>(floor(y - ysize)-1)
-        ymax = <long>(ceil(y + ysize)+1)
-        zmin = <long>(floor(z - zsize)-1)
-        zmax = <long>(ceil(z + zsize)+1)
-
-        if xmax < 0:
-            continue
-        if xmin > cyres[0]:
-            continue
-        if ymax < 0:
-            continue
-        if ymin > cyres[1]:
-            continue
-        if zmax < 0:
-            continue
-        if zmin > cyres[2]:
-            continue
-
-        if xmin < 0:
-            xmin = 0
-        if xmax > cyres[0]:
-            xmax = cyres[0]
-        if ymin < 0:
-            ymin = 0
-        if ymax > cyres[1]:
-            ymax = cyres[1]
-        if zmin < 0:
-            zmin = 0
-        if zmax > cyres[2]:
-            zmax = cyres[2]
-        #print xmin,xmax,ymin,ymax,zmin,zmax
-        test += 1
-        for iz in xrange(zmin,zmax):
-            for iy in xrange(ymin,ymax):
-                for ix in xrange(xmin,xmax):
-                    #test.append(int((z*(cyres[0]*cyres[0]))+(y*cyres[1])+x))
-                    id = <unsigned long>((iz*(cyres[1]*cyres[0]))+(iy*cyres[0])+ix) 
-                    #print 'hit'
-                    #if arraysearch(id,cells,cellnum) == -1:
-                    cells[cellnum].id = id
-                    cells[cellnum].parmem = 1
-                    cells[cellnum].parnum = 0
-                    cells[cellnum].par = <unsigned int *>malloc( cells[cellnum].parmem * cython.sizeof(int) )
-                    cells[cellnum].par[0] = cypar[i].id
-                    cellnum += 1
-                    if cellnum >= cellmem - 2:
-                        cellmem = <int>(<double>cellmem * 1.25)
-                        cells = <Cell *>realloc(cells,cellmem * cython.sizeof(Cell) )
-    #print blocknum,':',test
-    #for i in range(cellnum): 
-        #print "id:",cells[i].id,"parnum",cells[i].parnum
-        #print "  ", cells[i].par[0]
-    ##with gil:
-        #timer1 = clock() - timer1
-        #timer2 = clock()
-    quick_sort(cells,cellnum,idparam)
-    for i in range(cellnum):
-        if cells[i].id != cells[i+1].id:
-            cells[ncellnum].id = cells[i].id
-            cells[ncellnum].par[cells[ncellnum].parnum] = cells[i].par[0]
-            cells[ncellnum].parnum += 1
-            ncellnum += 1
-        else:
-            cells[ncellnum].par[cells[ncellnum].parnum] = cells[i].par[0]
-            cells[ncellnum].parnum += 1
-            if cells[ncellnum].parnum >= cells[ncellnum].parmem-1:
-                cells[ncellnum].parmem = <int>(<double>cells[ncellnum].parmem * 1.25) + 1
-                cells[ncellnum].par = <unsigned int *>realloc(cells[ncellnum].par,cells[ncellnum].parmem * cython.sizeof(int) )
-    ##with gil:
-        #timer2 = clock() - timer2
-        #timer3 = clock()
-    #print INT_MIN
-    #print INT_MAX
-    #print LONG_MIN
-    #print LONG_MAX
-    #print FLT_MIN
-    #print FLT_MAX
-    #print '---'
-    #for i in range(ncellnum): 
-        #print cells[i].id,cells[i].parnum
-        #for ii in range(cells[i].parnum):
-            #print "  ", cells[i].par[ii]
     
-    #print cells[0]
-    #test = set(test)
-    #test = tuple(test)
-    #print (test)
-    #'''
-    #for i in xrange(cellr):
-    for i in range(ncellnum):
-        id = cells[i].id
+    cdef unsigned int *parid = <unsigned int *>malloc( cyparnum * cython.sizeof(int) )
+    #with gil:
+        #print 'parnum:',cyparnum
+    for i in range(cyparnum):
+        parid[i] = cypar[i].id
+        #with gil:
+            #print 'par ID:',parid[i]
+    
+    for i in range(cellr):
+        id = i
         #x = celll[i].loc[0]
         #y = celll[i].loc[1]
         #z = celll[i].loc[2]
@@ -908,6 +963,8 @@ cdef void build(float *cyp0,float *cyp1,int *cyres,long cellr,float isolevel,int
         x = ttx
         y = tty
         z = ttz
+        #with gil:
+            #print x,y,z
         #'''
         #print i,':',x,y,z," | ",tx,ty,tz," | ",ttx,tty,ttz
         cornerloop(&cornerl[0],r[0],r[1],r[2])
@@ -918,7 +975,7 @@ cdef void build(float *cyp0,float *cyp1,int *cyres,long cellr,float isolevel,int
             cornerpos[ii].loc[0] = x+cx
             cornerpos[ii].loc[1] = y+cy
             cornerpos[ii].loc[2] = z+cz
-            cornervalues[ii] = scalarfield(cornerpos[ii],cells[i].par,cells[i].parnum)
+            cornervalues[ii] = scalarfield(cornerpos[ii],&parid[0],cyparnum)
         polygonise(cornervalues,cornerpos,isolevel,blocknum)
     
 
@@ -930,13 +987,7 @@ cdef void build(float *cyp0,float *cyp1,int *cyres,long cellr,float isolevel,int
     cornervalues = NULL
     #free(celll)
     #celll = NULL
-    for i in range(cellnum):
-        free(cells[i].par)
-        cells[i].par = NULL
-        cells[i].parnum = 0
-        cells[i].parmem = 1
-    free(cells)
-    cells = NULL
+    
     #with gil:
         #timer3 = clock() - timer3
     #with gil:
@@ -1013,6 +1064,15 @@ cdef int arraysearch(int element,Cell *array,int len)nogil:
         if element == array[i].id:
             return i
     return -1
+
+cdef struct Block:
+    unsigned long id
+    float p0[3]
+    float p1[3]
+    int res[3]
+    unsigned int *par
+    unsigned int parnum
+    unsigned int parmem
     
 cdef struct Point:
     unsigned long id
