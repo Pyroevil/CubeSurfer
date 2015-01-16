@@ -107,7 +107,8 @@ def isosurf(context):
             obsurf = object
             mesurf = object.data
             res = object.IsoSurf_res
-            SurfList.append([(obsurf,mesurf,res)])
+            preview = object.IsoSurf_preview
+            SurfList.append([(obsurf,mesurf,res,preview)])
             for item in object.IsoSurf:
                 if item.active == True:
                     if item.obj != '':
@@ -118,7 +119,7 @@ def isosurf(context):
     for surfobj in SurfList:
         print("start calculation of isosurface")
         #print(surfobj)
-        obsurf,mesurf,res = surfobj[0]
+        obsurf,mesurf,res,preview = surfobj[0]
         #print(obsurf,mesurf)
         #print(surfobj[1][0])
         ploc = []
@@ -176,8 +177,10 @@ def isosurf(context):
                 vertex3 = bm.verts.new( (a[i*9+6], a[i*9+7], a[i*9+8]) )
 
                 bm.faces.new( (vertex1, vertex2, vertex3) ).smooth = True
-                
-            bmesh.ops.remove_doubles(bm,verts=bm.verts,dist=res/20)
+            #print(preview)
+            if preview == False:
+                #print(preview)
+                bmesh.ops.remove_doubles(bm,verts=bm.verts,dist=res/100)
 
             bm.to_mesh(mesurf)
             scn.update()
@@ -213,13 +216,15 @@ class UIListPanelExample(Panel):
             row = box.row()
             row.prop(obj,"IsoSurf_res",text = "Voxel size:")
             row = box.row()
+            row.prop(obj,"IsoSurf_preview",text = "Preview Mode")
+            row = box.row()
             row.template_list("OBJECT_UL_IsoSurf", "", obj, "IsoSurf", obj, "IsoSurf_index")
             col = row.column(align=True)
             col.operator("op.isosurfer_item_add", icon="ZOOMIN", text="").add = True
             col.operator("op.isosurfer_item_add", icon="ZOOMOUT", text="").add = False    
             if obj.IsoSurf and obj.IsoSurf_index < len(obj.IsoSurf):
                 row = box.row()
-                row.prop(obj.IsoSurf[obj.IsoSurf_index],"active",text = "Active:")
+                row.prop(obj.IsoSurf[obj.IsoSurf_index],"active",text = "Active")
                 row = box.row()
                 row.label('Object: ')
                 row.prop_search(obj.IsoSurf[obj.IsoSurf_index], "obj",context.scene, "objects", text="")
@@ -301,6 +306,7 @@ def register():
     bpy.types.Object.IsoSurf = CollectionProperty(type=IsoSurf)
     bpy.types.Object.IsoSurf_index = IntProperty()
     bpy.types.Object.IsoSurf_res = FloatProperty()
+    bpy.types.Object.IsoSurf_preview = BoolProperty()
     pass
 
 
