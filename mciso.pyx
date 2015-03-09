@@ -335,6 +335,7 @@ cdef float scalarfield(Point pos,unsigned int *par,int parnum)nogil:
     cdef float z = 0.0
     cdef float a = 1000000000.0
     cdef float b = 0
+    cdef unsigned int bestid = 0
     #for i in range(parnum):
         #print "  ",par[i]
     for i in range(parnum):
@@ -346,7 +347,12 @@ cdef float scalarfield(Point pos,unsigned int *par,int parnum)nogil:
         b = dist - (cypar[ii].size * cypar[ii].size)
         if b < a:
             a = b
-    return a
+            bestid = ii
+    x = pos.loc[0] - cypar[bestid].loc[0]
+    y = pos.loc[1] - cypar[bestid].loc[1]
+    z = pos.loc[2] - cypar[bestid].loc[2]
+    dist = (x*x+y*y+z*z)**0.5 - (cypar[bestid].size)
+    return dist
     #'''
     '''        
     cdef float m = 2 #distance between spheres
@@ -573,7 +579,7 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     cdef float timer1 = 0
     cdef float timer2 = 0
     
-    timer2 = clock()
+    #timer2 = clock()
     cyparnum = len(psize)
     cypar = <Particle *>malloc( (cyparnum + 1) * cython.sizeof(Particle) )
     cdef unsigned int *cyparid = <unsigned int *>malloc( (cyparnum + 1) * cython.sizeof(int) )
@@ -607,8 +613,8 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
         if cypar[i].loc[2] + cypar[i].size > zmax:
             zmax = cypar[i].loc[2] + cypar[i].size
     
-    print xmin,ymin,zmin
-    print xmax,ymax,zmax
+    #print xmin,ymin,zmin
+    #print xmax,ymax,zmax
     cdef float *cyp0 = [floor(xmin/res)*res,floor(ymin/res)*res,floor(zmin/res)*res]
     cdef float *cyp1 = [ceil(xmax/res)*res,ceil(ymax/res)*res,ceil(zmax/res)*res]
     cyp0[0] = cyp0[0] - (res * 2)
@@ -621,11 +627,11 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     cdef int *cyres = [resolution[0],resolution[1],resolution[2]]
     cdef long cellr = <unsigned long>(resolution[0] * resolution[1] * resolution[2])
     
-    print('RES:',res)
-    print('MIN:',cyp0[0],cyp0[1],cyp0[2])
-    print('MAX:',cyp1[0],cyp1[1],cyp1[2])
-    print('3DRES:',cyres[0],cyres[1],cyres[2])
-    print('RES:',(cyp1[0]-cyp0[0])/cyres[0],(cyp1[1]-cyp0[1])/cyres[1],(cyp1[2]-cyp0[2])/cyres[2])
+    print '  Voxel size:',res
+    print '  Minimum BBox:',cyp0[0],cyp0[1],cyp0[2]
+    print '  Maximum BBox:',cyp1[0],cyp1[1],cyp1[2]
+    print '  3D Subdivisions:',cyres[0],cyres[1],cyres[2]
+    #print '  RES:',(cyp1[0]-cyp0[0])/cyres[0],(cyp1[1]-cyp0[1])/cyres[1],(cyp1[2]-cyp0[2])/cyres[2]
     
     cdef int cblocknum = 0
     cdef int cblockmem = 0
@@ -648,10 +654,10 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
         cytrinum[i] = 0
         cytriangles[i] = <float ***>malloc( cytrimem[i] * cython.sizeof(double) )
 
-    timer2 = clock() - timer2
-    timer1 = clock()
+    #timer2 = clock() - timer2
+    #timer1 = clock()
     
-    print ' Get Particles:',timer2,'s'
+    #print ' Get Particles:',timer2,'s'
     
     #print cblocknum,cblockmem
     
@@ -672,8 +678,8 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
         #build(cblock[i].p0,cblock[i].p1,cblock[i].res,cellr,isolevel,i)
     #build(cyp0,cyp1,cyres,cellr,isolevel)
     
-    print ' calculate geometry:',clock() - timer1,'s'
-    timer1 = clock()
+    #print ' calculate geometry:',clock() - timer1,'s'
+    #timer1 = clock()
     
     totaltri = 0
     for i in range(cblocknum):
@@ -715,7 +721,7 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     cblockmem = 0
     cblocknum = 0
 
-    print ' send to pyarray:',clock() - timer1,'s'
+    #print ' send to pyarray:',clock() - timer1,'s'
     return tmptriangles
 
 
