@@ -778,7 +778,7 @@ cpdef isosurface(float res,float isolevel,ploc,psize,pprop = -1,pzone = -1):
                     #print(tmpprops[j])
                     j += 1
     #print(i,cytrinum * 3 * 3,cytrinum)
-    print(len(tmpprops),tmpprops[0:9])
+    #print(len(tmpprops),tmpprops[0:9])
     for ii in range(cblocknum):
         for tri in range(cytrinum[ii]):
             for i in range(3):
