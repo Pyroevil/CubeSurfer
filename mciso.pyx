@@ -324,7 +324,7 @@ cdef int **tritable = [[-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 
                     [0, 3, 8, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1],
                     [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]]
 
-cdef float scalarfield(Point pos,unsigned int *par,int parnum)nogil:
+cdef void scalarfield(float **result,int index,Point pos,unsigned int *par,int parnum)nogil:
     #'''
     global cypar,cyparnum
     cdef int i = 0
@@ -352,7 +352,10 @@ cdef float scalarfield(Point pos,unsigned int *par,int parnum)nogil:
     y = pos.loc[1] - cypar[bestid].loc[1]
     z = pos.loc[2] - cypar[bestid].loc[2]
     dist = (x*x+y*y+z*z)**0.5 - (cypar[bestid].size)
-    return dist
+    result[index][0] = dist
+    for i in xrange(cypar[bestid].numprop):
+        result[index][i+1] = cypar[bestid].prop[i]
+    return
     #'''
     '''        
     cdef float m = 2 #distance between spheres
@@ -370,12 +373,15 @@ cdef float scalarfield(Point pos,unsigned int *par,int parnum)nogil:
     #return pos.loc[0]*pos.loc[0]+pos.loc[1]*pos.loc[1]+pos.loc[2]*pos.loc[2] 
  
  
-cdef void polygonise(float *cycornervalues,Point *cycornerpos,float isolevel,int blocknum)nogil:
+cdef void polygonise(float **cycornervalues,int propnum,Point *cycornerpos,float isolevel,int blocknum)nogil:
     global edgetable,tritable,cytriangles,cytrimem,cytrinum
 
     cdef int i = 0
+    cdef int ii = 0
+    cdef int j = 0
     cdef int cubeindex = 0
     cdef Point *cyvertlist = NULL
+    cdef float **cyvertprop = NULL
     
     #cornervalues = [0] * 8
     #cornerpos = [0] * 8
@@ -386,14 +392,14 @@ cdef void polygonise(float *cycornervalues,Point *cycornerpos,float isolevel,int
         #   Determine the index into the edge table which
         #   tells us which vertices are inside of the surface
 
-    if cycornervalues[0] < isolevel: cubeindex = cubeindex | 1
-    if cycornervalues[1] < isolevel: cubeindex = cubeindex | 2
-    if cycornervalues[2] < isolevel: cubeindex = cubeindex | 4
-    if cycornervalues[3] < isolevel: cubeindex = cubeindex | 8
-    if cycornervalues[4] < isolevel: cubeindex = cubeindex | 16
-    if cycornervalues[5] < isolevel: cubeindex = cubeindex | 32
-    if cycornervalues[6] < isolevel: cubeindex = cubeindex | 64
-    if cycornervalues[7] < isolevel: cubeindex = cubeindex | 128
+    if cycornervalues[0][0] < isolevel: cubeindex = cubeindex | 1
+    if cycornervalues[1][0] < isolevel: cubeindex = cubeindex | 2
+    if cycornervalues[2][0] < isolevel: cubeindex = cubeindex | 4
+    if cycornervalues[3][0] < isolevel: cubeindex = cubeindex | 8
+    if cycornervalues[4][0] < isolevel: cubeindex = cubeindex | 16
+    if cycornervalues[5][0] < isolevel: cubeindex = cubeindex | 32
+    if cycornervalues[6][0] < isolevel: cubeindex = cubeindex | 64
+    if cycornervalues[7][0] < isolevel: cubeindex = cubeindex | 128
        
     # Cube is entirely in/out of the surface
     if edgetable[cubeindex] == 0:
@@ -401,21 +407,26 @@ cdef void polygonise(float *cycornervalues,Point *cycornerpos,float isolevel,int
        
     #vertlist=[]
     cyvertlist = <Point *>malloc( 12 * cython.sizeof(Point) )
-        #vertlist.append([0,0,0])
+    cyvertprop = <float **>malloc( 12 * cython.sizeof(double) )
+    
+    for i in xrange(12):
+        cyvertprop[i] = <float *>malloc( propnum * cython.sizeof(float) )
+        for ii in xrange(propnum):
+            cyvertprop[i][ii] = 666.777
         
         # Find the vertices where the surface intersects the cube
-    if (edgetable[cubeindex] & 1):    vertexinterp(&cyvertlist[0],isolevel,cycornerpos[0],cycornerpos[1],cycornervalues[0],cycornervalues[1])
-    if (edgetable[cubeindex] & 2):    vertexinterp(&cyvertlist[1],isolevel,cycornerpos[1],cycornerpos[2],cycornervalues[1],cycornervalues[2])
-    if (edgetable[cubeindex] & 4):    vertexinterp(&cyvertlist[2],isolevel,cycornerpos[2],cycornerpos[3],cycornervalues[2],cycornervalues[3])
-    if (edgetable[cubeindex] & 8):    vertexinterp(&cyvertlist[3],isolevel,cycornerpos[3],cycornerpos[0],cycornervalues[3],cycornervalues[0])
-    if (edgetable[cubeindex] & 16):   vertexinterp(&cyvertlist[4],isolevel,cycornerpos[4],cycornerpos[5],cycornervalues[4],cycornervalues[5])
-    if (edgetable[cubeindex] & 32):   vertexinterp(&cyvertlist[5],isolevel,cycornerpos[5],cycornerpos[6],cycornervalues[5],cycornervalues[6])
-    if (edgetable[cubeindex] & 64):   vertexinterp(&cyvertlist[6],isolevel,cycornerpos[6],cycornerpos[7],cycornervalues[6],cycornervalues[7])
-    if (edgetable[cubeindex] & 128):  vertexinterp(&cyvertlist[7],isolevel,cycornerpos[7],cycornerpos[4],cycornervalues[7],cycornervalues[4])
-    if (edgetable[cubeindex] & 256):  vertexinterp(&cyvertlist[8],isolevel,cycornerpos[0],cycornerpos[4],cycornervalues[0],cycornervalues[4])
-    if (edgetable[cubeindex] & 512):  vertexinterp(&cyvertlist[9],isolevel,cycornerpos[1],cycornerpos[5],cycornervalues[1],cycornervalues[5])
-    if (edgetable[cubeindex] & 1024): vertexinterp(&cyvertlist[10],isolevel,cycornerpos[2],cycornerpos[6],cycornervalues[2],cycornervalues[6])
-    if (edgetable[cubeindex] & 2048): vertexinterp(&cyvertlist[11],isolevel,cycornerpos[3],cycornerpos[7],cycornervalues[3],cycornervalues[7])
+    if (edgetable[cubeindex] & 1):    vertexinterp(&cyvertlist[0],&cyvertprop[0][0],propnum,isolevel,cycornerpos[0],cycornerpos[1],cycornervalues[0][0],cycornervalues[1][0],&cycornervalues[0][1],&cycornervalues[1][1])
+    if (edgetable[cubeindex] & 2):    vertexinterp(&cyvertlist[1],&cyvertprop[1][0],propnum,isolevel,cycornerpos[1],cycornerpos[2],cycornervalues[1][0],cycornervalues[2][0],&cycornervalues[1][1],&cycornervalues[2][1])
+    if (edgetable[cubeindex] & 4):    vertexinterp(&cyvertlist[2],&cyvertprop[2][0],propnum,isolevel,cycornerpos[2],cycornerpos[3],cycornervalues[2][0],cycornervalues[3][0],&cycornervalues[2][1],&cycornervalues[3][1])
+    if (edgetable[cubeindex] & 8):    vertexinterp(&cyvertlist[3],&cyvertprop[3][0],propnum,isolevel,cycornerpos[3],cycornerpos[0],cycornervalues[3][0],cycornervalues[0][0],&cycornervalues[3][1],&cycornervalues[0][1])
+    if (edgetable[cubeindex] & 16):   vertexinterp(&cyvertlist[4],&cyvertprop[4][0],propnum,isolevel,cycornerpos[4],cycornerpos[5],cycornervalues[4][0],cycornervalues[5][0],&cycornervalues[4][1],&cycornervalues[5][1])
+    if (edgetable[cubeindex] & 32):   vertexinterp(&cyvertlist[5],&cyvertprop[5][0],propnum,isolevel,cycornerpos[5],cycornerpos[6],cycornervalues[5][0],cycornervalues[6][0],&cycornervalues[5][1],&cycornervalues[6][1])
+    if (edgetable[cubeindex] & 64):   vertexinterp(&cyvertlist[6],&cyvertprop[6][0],propnum,isolevel,cycornerpos[6],cycornerpos[7],cycornervalues[6][0],cycornervalues[7][0],&cycornervalues[6][1],&cycornervalues[7][1])
+    if (edgetable[cubeindex] & 128):  vertexinterp(&cyvertlist[7],&cyvertprop[7][0],propnum,isolevel,cycornerpos[7],cycornerpos[4],cycornervalues[7][0],cycornervalues[4][0],&cycornervalues[7][1],&cycornervalues[4][1])
+    if (edgetable[cubeindex] & 256):  vertexinterp(&cyvertlist[8],&cyvertprop[8][0],propnum,isolevel,cycornerpos[0],cycornerpos[4],cycornervalues[0][0],cycornervalues[4][0],&cycornervalues[0][1],&cycornervalues[4][1])
+    if (edgetable[cubeindex] & 512):  vertexinterp(&cyvertlist[9],&cyvertprop[9][0],propnum,isolevel,cycornerpos[1],cycornerpos[5],cycornervalues[1][0],cycornervalues[5][0],&cycornervalues[1][1],&cycornervalues[5][1])
+    if (edgetable[cubeindex] & 1024): vertexinterp(&cyvertlist[10],&cyvertprop[10][0],propnum,isolevel,cycornerpos[2],cycornerpos[6],cycornervalues[2][0],cycornervalues[6][0],&cycornervalues[2][1],&cycornervalues[6][1])
+    if (edgetable[cubeindex] & 2048): vertexinterp(&cyvertlist[11],&cyvertprop[11][0],propnum,isolevel,cycornerpos[3],cycornerpos[7],cycornervalues[3][0],cycornervalues[7][0],&cycornervalues[3][1],&cycornervalues[7][1])
     
     #for i in xrange(12):
         #vertlist[i][0] = cyvertlist[i][0]
@@ -427,21 +438,31 @@ cdef void polygonise(float *cycornervalues,Point *cycornerpos,float isolevel,int
     #for (i=0;triTable[cubeindex][i]!=-1;i+=3) {
     i=0
     #print blocknum
+    #with gil:
+        #print cyvertprop[0][0],propnum
+    #with gil:
+        #print "Polygonize1:",propnum
     while tritable[cubeindex][i] != -1:
         cytriangles[blocknum][cytrinum[blocknum]] = <float **>malloc( 3 * cython.sizeof(double) )
         for ii in range(3):
-            cytriangles[blocknum][cytrinum[blocknum]][ii] = <float *>malloc( 3 * cython.sizeof(float) )
+            cytriangles[blocknum][cytrinum[blocknum]][ii] = <float *>malloc((3 + propnum) * cython.sizeof(float) )
         cytriangles[blocknum][cytrinum[blocknum]][0][0] = cyvertlist[tritable[cubeindex][i]].loc[0]
         cytriangles[blocknum][cytrinum[blocknum]][0][1] = cyvertlist[tritable[cubeindex][i]].loc[1]
         cytriangles[blocknum][cytrinum[blocknum]][0][2] = cyvertlist[tritable[cubeindex][i]].loc[2]
+        for j in xrange(3,propnum+3):
+            cytriangles[blocknum][cytrinum[blocknum]][0][j] = cyvertprop[tritable[cubeindex][i]][j-3]
         
         cytriangles[blocknum][cytrinum[blocknum]][1][0] = cyvertlist[tritable[cubeindex][i+1]].loc[0]
         cytriangles[blocknum][cytrinum[blocknum]][1][1] = cyvertlist[tritable[cubeindex][i+1]].loc[1]
         cytriangles[blocknum][cytrinum[blocknum]][1][2] = cyvertlist[tritable[cubeindex][i+1]].loc[2]
+        for j in xrange(3,propnum+3):
+            cytriangles[blocknum][cytrinum[blocknum]][1][j] = cyvertprop[tritable[cubeindex][i+1]][j-3]
         
         cytriangles[blocknum][cytrinum[blocknum]][2][0] = cyvertlist[tritable[cubeindex][i+2]].loc[0]
         cytriangles[blocknum][cytrinum[blocknum]][2][1] = cyvertlist[tritable[cubeindex][i+2]].loc[1]
         cytriangles[blocknum][cytrinum[blocknum]][2][2] = cyvertlist[tritable[cubeindex][i+2]].loc[2]
+        for j in xrange(3,propnum+3):
+            cytriangles[blocknum][cytrinum[blocknum]][2][j] = cyvertprop[tritable[cubeindex][i+2]][j-3]
         cytrinum[blocknum] += 1
         
         if cytrinum[blocknum] >= cytrimem[blocknum] - 2:
@@ -454,23 +475,43 @@ cdef void polygonise(float *cycornervalues,Point *cycornerpos,float isolevel,int
 
     free(cyvertlist)
     cyvertlist = NULL  
+    for i in xrange(propnum):
+        free(cyvertprop[i])
+        cyvertprop[i] = NULL
+    free(cyvertprop)
+    cyvertprop = NULL
     #return #triangles
  
-cdef void vertexinterp(Point *cyvertlist,float isolevel,Point p1,Point p2,float valp1,float valp2)nogil:
+cdef void vertexinterp(Point *cyvertlist,float *cyvertprop,int propnum,float isolevel,Point p1,Point p2,float valp1,float valp2,float *prop1,float *prop2)nogil:
+    cdef int i = 0
+    #with gil:
+        #print "VertexInterp1:",propnum
     if (fabs(isolevel-valp1) < 0.00001):
         cyvertlist.loc[0] = p1.loc[0]
         cyvertlist.loc[1] = p1.loc[1]
         cyvertlist.loc[2] = p1.loc[2]
+        for i in xrange(propnum):
+            #with gil:
+                #print 666
+            cyvertprop[i] = prop1[i]
         return
     if (fabs(isolevel-valp2) < 0.00001):
         cyvertlist.loc[0] = p2.loc[0]
         cyvertlist.loc[1] = p2.loc[1]
         cyvertlist.loc[2] = p2.loc[2]
+        for i in xrange(propnum):
+            #with gil:
+                #print 777
+            cyvertprop[i] = prop2[i]
         return
     if (fabs(valp1-valp2) < 0.00001):
         cyvertlist.loc[0] = p1.loc[0]
         cyvertlist.loc[1] = p1.loc[1]
         cyvertlist.loc[2] = p1.loc[2]
+        for i in xrange(propnum):
+            #with gil:
+                #print 888
+            cyvertprop[i] = prop1[i]
         return
     cdef float mu
     cdef float *p = [0,0,0]
@@ -478,6 +519,10 @@ cdef void vertexinterp(Point *cyvertlist,float isolevel,Point p1,Point p2,float 
     cyvertlist.loc[0] = p1.loc[0] + mu * (p2.loc[0] - p1.loc[0])
     cyvertlist.loc[1] = p1.loc[1] + mu * (p2.loc[1] - p1.loc[1])
     cyvertlist.loc[2] = p1.loc[2] + mu * (p2.loc[2] - p1.loc[2])
+    for i in xrange(propnum):
+        cyvertprop[i] = prop1[i] + mu * (prop2[i] - prop1[i])
+    #with gil:
+        #print 999
  
     #return
  
@@ -547,14 +592,16 @@ cdef void cornerloop(Point *cyresult,float x,float y,float z)nogil:
             ii += 1
     #return
 
-cpdef isosurface(float res,float isolevel,ploc,psize):
+cpdef isosurface(float res,float isolevel,ploc,psize,pprop = -1,pzone = -1):
     global cytriangles,cytrimem,cytrinum,cypar,cyparnum,#cblock,#cblocknum,#cblockmem
     
     cdef long tri = 0
     cdef long vert = 0
     cdef long pt = 0
+    cdef long prp = 0
     cdef long i = 0
     cdef long ii = 0
+    cdef long j = 0
     cdef int ix = 0
     cdef int iy = 0
     cdef int iz = 0
@@ -583,46 +630,75 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     cyparnum = len(psize)
     cypar = <Particle *>malloc( (cyparnum + 1) * cython.sizeof(Particle) )
     cdef unsigned int *cyparid = <unsigned int *>malloc( (cyparnum + 1) * cython.sizeof(int) )
+    cdef unsigned int propnum = 0
+    #print pprop
+    if pprop == -1:
+        for i in xrange(cyparnum):
+            cyparid[i] = i
+            cypar[i].id = i
+            cypar[i].size = psize[i]
+            cypar[i].loc[0] = ploc[i][0]
+            cypar[i].loc[1] = ploc[i][1]
+            cypar[i].loc[2] = ploc[i][2]
+            cypar[i].prop = NULL
+            cypar[i].numprop = 0
+            #print i
+    else:
+        propnum = len(pprop[0])
+        for i in xrange(cyparnum):
+            cyparid[i] = i
+            cypar[i].id = i
+            cypar[i].size = psize[i]
+            cypar[i].loc[0] = ploc[i][0]
+            cypar[i].loc[1] = ploc[i][1]
+            cypar[i].loc[2] = ploc[i][2]
+            cypar[i].prop = <float *>malloc( (propnum) * cython.sizeof(float) )
+            cypar[i].numprop = propnum
+            for ii in xrange(cypar[i].numprop):
+                cypar[i].prop[ii] = pprop[i][ii]
+            #print i
     
-    #print psize
-    for i in xrange(cyparnum):
-        cyparid[i] = i
-        cypar[i].id = i
-        cypar[i].size = psize[i]
-        cypar[i].loc[0] = ploc[i][0]
-        cypar[i].loc[1] = ploc[i][1]
-        cypar[i].loc[2] = ploc[i][2]
-        #print i
     cdef float xmin = 10000000#FLT_MAX
     cdef float xmax = -10000000#FLT_MIN
     cdef float ymin = 10000000#FLT_MAX
     cdef float ymax = -10000000#FLT_MIN 
     cdef float zmin = 10000000#FLT_MAX
-    cdef float zmax = -10000000#FLT_MIN 
-    for i in xrange(cyparnum):
-        if cypar[i].loc[0] - cypar[i].size < xmin:
-            xmin = cypar[i].loc[0] - cypar[i].size
-        if cypar[i].loc[0] + cypar[i].size > xmax:
-            xmax = cypar[i].loc[0] + cypar[i].size
-        if cypar[i].loc[1] - cypar[i].size < ymin:
-            ymin = cypar[i].loc[1] - cypar[i].size
-        if cypar[i].loc[1] + cypar[i].size > ymax:
-            ymax = cypar[i].loc[1] + cypar[i].size
-        if cypar[i].loc[2] - cypar[i].size < zmin:
-            zmin = cypar[i].loc[2] - cypar[i].size
-        if cypar[i].loc[2] + cypar[i].size > zmax:
-            zmax = cypar[i].loc[2] + cypar[i].size
+    cdef float zmax = -10000000#FLT_MIN
+    cdef float offset = 0
+    if pzone == -1:
+        for i in xrange(cyparnum):
+            if cypar[i].loc[0] - cypar[i].size < xmin:
+                xmin = cypar[i].loc[0] - cypar[i].size
+            if cypar[i].loc[0] + cypar[i].size > xmax:
+                xmax = cypar[i].loc[0] + cypar[i].size
+            if cypar[i].loc[1] - cypar[i].size < ymin:
+                ymin = cypar[i].loc[1] - cypar[i].size
+            if cypar[i].loc[1] + cypar[i].size > ymax:
+                ymax = cypar[i].loc[1] + cypar[i].size
+            if cypar[i].loc[2] - cypar[i].size < zmin:
+                zmin = cypar[i].loc[2] - cypar[i].size
+            if cypar[i].loc[2] + cypar[i].size > zmax:
+                zmax = cypar[i].loc[2] + cypar[i].size
+        offset = res * 2.0
+    else:
+        xmin = pzone[0]
+        xmax = pzone[1]
+        ymin = pzone[2]
+        ymax = pzone[3]
+        zmin = pzone[4]
+        zmax = pzone[5]
+        offset = 0.0
     
     #print xmin,ymin,zmin
     #print xmax,ymax,zmax
     cdef float *cyp0 = [floor(xmin/res)*res,floor(ymin/res)*res,floor(zmin/res)*res]
     cdef float *cyp1 = [ceil(xmax/res)*res,ceil(ymax/res)*res,ceil(zmax/res)*res]
-    cyp0[0] = cyp0[0] - (res * 2)
-    cyp0[1] = cyp0[1] - (res * 2)
-    cyp0[2] = cyp0[2] - (res * 2)
-    cyp1[0] = cyp1[0] + (res * 2)
-    cyp1[1] = cyp1[1] + (res * 2)
-    cyp1[2] = cyp1[2] + (res * 2)
+    cyp0[0] = cyp0[0] - (offset)
+    cyp0[1] = cyp0[1] - (offset)
+    cyp0[2] = cyp0[2] - (offset)
+    cyp1[0] = cyp1[0] + (offset)
+    cyp1[1] = cyp1[1] + (offset)
+    cyp1[2] = cyp1[2] + (offset)
     cdef int *resolution = [<int>((cyp1[0]-cyp0[0])/res),<int>((cyp1[1]-cyp0[1])/res),<int>((cyp1[2]-cyp0[2])/res)]
     cdef int *cyres = [resolution[0],resolution[1],resolution[2]]
     cdef long cellr = <unsigned long>(resolution[0] * resolution[1] * resolution[2])
@@ -666,6 +742,7 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     
     
     #build(cyp0,cyp1,cyres,cellr,isolevel,i)
+    #print "Beginning:",propnum
     with nogil:
         for i in prange(cblocknum,schedule='dynamic',chunksize=1,num_threads=12):
             #build(cyp0,cyp1,cyres,cellr,isolevel,i)
@@ -686,7 +763,9 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
         totaltri += cytrinum[i]
     
     tmptriangles = [666.666] * totaltri * 3 * 3
+    tmpprops = [666.666] * totaltri * 3 * propnum
     i = 0
+    j = 0
     for ii in range(cblocknum):
         for tri in range(cytrinum[ii]):
             for vert in range(3):
@@ -694,8 +773,12 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
                     tmptriangles[i] = cytriangles[ii][tri][vert][pt]
                     i += 1
                     #print i,cytrinum * 3 * 3
+                for prp in range(3,propnum + 3):
+                    tmpprops[j] = cytriangles[ii][tri][vert][prp]
+                    #print(tmpprops[j])
+                    j += 1
     #print(i,cytrinum * 3 * 3,cytrinum)
-
+    print(len(tmpprops),tmpprops[0:9])
     for ii in range(cblocknum):
         for tri in range(cytrinum[ii]):
             for i in range(3):
@@ -713,6 +796,10 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     cytrimem = NULL
     free(cytrinum)
     cytrinum = NULL
+    for i in xrange(cyparnum):
+        free(cypar[i].prop)
+        cypar[i].prop = NULL
+        cypar[i].numprop = 0
     free(cypar)
     cypar = NULL
     cyparnum = 0
@@ -722,7 +809,7 @@ cpdef isosurface(float res,float isolevel,ploc,psize):
     cblocknum = 0
 
     #print ' send to pyarray:',clock() - timer1,'s'
-    return tmptriangles
+    return tmptriangles,tmpprops
 
 
 cdef void SpacePartition(Block **cblock,int *cblocknum,int *cblockmem,Particle *cypar,int cyparnum,unsigned int *cyparid,float *cyp0,float *cyp1,int *cyres,float res,int size,int depth)nogil:
@@ -836,12 +923,18 @@ cdef void build2(unsigned int *cyparid,int cyparnum,float *cyp0,float *cyp1,int 
     SpacePartition(&cblock,&cblocknum,&cblockmem,&cypar[0],cyparnum,&cyparid[0],cyp0,cyp1,cyres,res,blocksize,0)
     #SpacePartition(&cblock,&cblocknum,&cblockmem,&cypar[0],cyparnum,&cyparid[0],cyp0,cyp1,cyres,res,blocksize,0)
     cdef Point *cornerpos = NULL
-    cdef float *cornervalues = NULL
     cdef Point *cornerl = NULL
     cornerpos = <Point *>malloc( 8 * cython.sizeof(Point) )
     cornerl = <Point *>malloc( 8 * cython.sizeof(Point) )
-    cornervalues = <float *>malloc( 8 * cython.sizeof(float) )
     
+    cdef float **cornervalues = NULL
+    cornervalues = <float **>malloc( 8 * cython.sizeof(double) )
+    
+    for i in xrange(8):
+        cornervalues[i] = <float *>malloc( (cypar[0].numprop + 1) * cython.sizeof(float) )
+
+    #with gil:
+        #print "Building:",cypar[0].numprop
     cdef float *r = [res,res,res]
     for i in range(cblocknum):
         x = cblock[i].p0[0]
@@ -857,8 +950,8 @@ cdef void build2(unsigned int *cyparid,int cyparnum,float *cyp0,float *cyp1,int 
             cornerpos[ii].loc[0] = x+cx
             cornerpos[ii].loc[1] = y+cy
             cornerpos[ii].loc[2] = z+cz
-            cornervalues[ii] = scalarfield(cornerpos[ii],cblock[i].par,cblock[i].parnum)
-        polygonise(cornervalues,cornerpos,isolevel,blocknum)
+            scalarfield(&cornervalues[0],ii,cornerpos[ii],cblock[i].par,cblock[i].parnum)
+        polygonise(&cornervalues[0],cypar[0].numprop,cornerpos,isolevel,blocknum)
     
     for i in range(cblocknum):
         free(cblock[i].par)
@@ -869,13 +962,16 @@ cdef void build2(unsigned int *cyparid,int cyparnum,float *cyp0,float *cyp1,int 
     cornerl = NULL
     free(cornerpos)
     cornerpos = NULL
+    for i in xrange(8):
+        free(cornervalues[i])
+        cornervalues[i] = NULL
     free(cornervalues)
     cornervalues = NULL
 
  
     return
 
-    
+"""    
 cdef void build(float *cyp0,float *cyp1,int *cyres,long cellr,float isolevel,int blocknum)nogil:
     global cytriangles,cytrimem,cytrinum,cypar,cyparnum
     
@@ -1000,7 +1096,7 @@ cdef void build(float *cyp0,float *cyp1,int *cyres,long cellr,float isolevel,int
         #print "CPU No:",blocknum," cells:",ncellnum,"/",cellnum,' findvox:',timer1,'s  optivox:',timer2,'s  geo:',timer3,'s'
     
     return
-
+"""
 
 cdef float xparam(Point a)nogil:
     return a.loc[0]
@@ -1088,6 +1184,8 @@ cdef struct Particle:
     unsigned long id
     float size
     float loc[3]
+    float *prop
+    unsigned int numprop
 
 cdef struct Cell:
     unsigned long id
