@@ -17,12 +17,12 @@
 #======================= END GPL LICENSE BLOCK ========================
 
 bl_info = {
-    "name": "Iso Surfer script",
+    "name": "Cube Surfer script",
     "author": "Jean-Francois Gallant(PyroEvil)",
     "version": (0, 0, 1),
     "blender": (2, 7, 1),
-    "location": "Properties > Mesh Tab",
-    "description": ("Iso Surfer script"),
+    "location": "Properties > Object Tab",
+    "description": ("Cube Surfer script"),
     "warning": "",  # used for warning icon and text in addons panel
     "wiki_url": "http://pyroevil.com/",
     "tracker_url": "http://pyroevil.com/" ,
@@ -36,7 +36,7 @@ from bpy_extras.object_utils import AddObjectHelper, object_data_add
 from mathutils import Vector
 import bmesh
 import sys
-from isosurfer import mciso
+from cubesurfer import mciso
 import time
 import ctypes
 
@@ -49,6 +49,7 @@ def add_isosurf(self, context):
     bpy.context.scene.objects.link(obj)
     obj['IsoSurfer'] = True
     obj.IsoSurf_res = True
+    obj.shape_key_add(name="Base")
 
 
 class OBJECT_OT_add_isosurf(Operator, AddObjectHelper):
@@ -88,7 +89,21 @@ def add_isosurf_manual_map():
         )
     return url_manual_prefix, url_manual_mapping    
 
+    
+def isosurf_prerender(context):
+    scn = bpy.context.scene
+    scn.IsoSurf_context = "RENDER"
+    isosurf(context)
+
+def isosurf_postrender(context):
+    scn = bpy.context.scene    
+    scn.IsoSurf_context = "WINDOW"
         
+def isosurf_frame(context):
+    scn = bpy.context.scene
+    #print(scn.IsoSurf_context)
+    if scn.IsoSurf_context == "WINDOW":
+        isosurf(context)
 
         
 def isosurf(context):
@@ -117,13 +132,18 @@ def isosurf(context):
             i += 1
                             
     for surfobj in SurfList:
-        print("start calculation of isosurface")
+        print("Start calculation of isosurface...frame:",bpy.context.scene.frame_current)
+        #print(bpy.context)
+        #print(bpy.context.screen)
+        #print(bpy.context.window)
+        #print(bpy.context.area)
         #print(surfobj)
         obsurf,mesurf,res,preview = surfobj[0]
         #print(obsurf,mesurf)
         #print(surfobj[1][0])
         ploc = []
         psize = []
+        pvel = []
         stime = time.clock()
         xmin = 10000000000
         xmax = -10000000000
@@ -132,14 +152,15 @@ def isosurf(context):
         zmin = 10000000000
         zmax = -10000000000
         for obj,psys,sizem in surfobj[1:]:
-            print(obj,psys,res,sizem)
+            #print(obj,psys,res,sizem)
             psys = bpy.data.objects[obj].particle_systems[psys].particles
-            print(psys)
+            #print(psys)
             psysize = len(psys)
             for par in range(psysize):
                 if psys[par].alive_state == 'ALIVE':
                     size = psys[par].size * sizem
                     ploc.append(psys[par].location)
+                    pvel.append(psys[par].velocity)
                     psize.append(size)
                     
         if len(psize) > 0:
@@ -147,8 +168,7 @@ def isosurf(context):
             isolevel=0.0
             print('  pack particles:',time.clock() - stime,'sec')
             
-            a = mciso.isosurface(res,isolevel,ploc,psize)
-
+            a,b = mciso.isosurface(res,isolevel,ploc,psize,pvel)
             print('  mciso:',time.clock() - stime,'sec')
             stime = time.clock()
             
@@ -170,12 +190,17 @@ def isosurf(context):
 
             bm.from_mesh(mesurf)
             bm.clear()
+            sh = bm.verts.layers.shape.new("IsoSurf_mb")
             for i in range(int(len(a)/9)):
 
                 vertex1 = bm.verts.new( (a[i*9], a[i*9+1], a[i*9+2]) )
                 vertex2 = bm.verts.new( (a[i*9+3], a[i*9+4], a[i*9+5]) )
                 vertex3 = bm.verts.new( (a[i*9+6], a[i*9+7], a[i*9+8]) )
-
+                
+                vertex1[sh] = (a[i*9] + b[i*9], a[i*9+1] + b[i*9+1], a[i*9+2] + b[i*9+2])
+                vertex2[sh] = (a[i*9+3] + b[i*9+3], a[i*9+4] + b[i*9+4], a[i*9+5] + b[i*9+5])
+                vertex3[sh] = (a[i*9+6] + b[i*9+6], a[i*9+7] + b[i*9+7], a[i*9+8] + b[i*9+8])
+                
                 bm.faces.new( (vertex1, vertex2, vertex3) ).smooth = True
             #print(preview)
             if preview == False:
@@ -183,6 +208,16 @@ def isosurf(context):
                 bmesh.ops.remove_doubles(bm,verts=bm.verts,dist=res/100)
 
             bm.to_mesh(mesurf)
+            mesurf.shape_keys.animation_data_clear()
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].slider_min = -1.0
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].value = 1/scn.render.fps
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].keyframe_insert("value",frame=scn.frame_current + 1)
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].value = -1/scn.render.fps
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].keyframe_insert("value",frame=scn.frame_current - 1)
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].value = 0.0
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].keyframe_insert("value",frame=scn.frame_current)
+            
+            
             scn.update()
             bm.free()
             print('  Bmesh:',time.clock() - stime,'sec')
@@ -202,7 +237,7 @@ class OBJECT_UL_IsoSurf(UIList):
 
 class UIListPanelExample(Panel):
     """Creates a Panel in the Object properties window"""
-    bl_label = "IsoSurfer Panel"
+    bl_label = "CubeSurfer Panel"
     bl_idname = "OBJECT_PT_ui_list_example"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
@@ -216,8 +251,8 @@ class UIListPanelExample(Panel):
             row = box.row()
             row.prop(obj,"IsoSurf_res",text = "Voxel size:")
             row = box.row()
-            row.prop(obj,"IsoSurf_preview",text = "Preview Mode")
-            row = box.row()
+            #row.prop(obj,"IsoSurf_preview",text = "Preview Mode")
+            #row = box.row()
             row.template_list("OBJECT_UL_IsoSurf", "", obj, "IsoSurf", obj, "IsoSurf_index")
             col = row.column(align=True)
             col.operator("op.isosurfer_item_add", icon="ZOOMIN", text="").add = True
@@ -240,7 +275,6 @@ class UIListPanelExample(Panel):
                             row.prop(obj.IsoSurf[obj.IsoSurf_index],"sizem",text = "Particles Size Multiplier:")
                             row = box.row()
                             #row.prop(obj.IsoSurf[obj.IsoSurf_index],"res",text = "Voxel size:")
-                        
             row = box.row()
             box = box.box()
             box.active = False
@@ -260,6 +294,14 @@ class UIListPanelExample(Panel):
             row = box.row()
             row.alignment = 'CENTER'
             row.label(text = "www.pyroevil.com/donate/")
+                            
+        else:
+            layout = self.layout
+            box = layout.box()
+            row = box.row()
+            row.label('Please,select a IsoSurface object!',icon='ERROR')
+                        
+            
 
                 
 class OBJECT_OT_isosurfer_add(bpy.types.Operator):
@@ -307,6 +349,7 @@ def register():
     bpy.types.Object.IsoSurf_index = IntProperty()
     bpy.types.Object.IsoSurf_res = FloatProperty()
     bpy.types.Object.IsoSurf_preview = BoolProperty()
+    bpy.types.Scene.IsoSurf_context = StringProperty(default = "WINDOW")
     pass
 
 
@@ -321,12 +364,10 @@ def unregister():
 
 if isosurf not in bpy.app.handlers.frame_change_post:
     print('create isosurfer handlers...')
-    bpy.app.handlers.persistent(isosurf)
-    bpy.app.handlers.frame_change_post.append(isosurf)
+    bpy.app.handlers.persistent(isosurf_frame)
+    bpy.app.handlers.frame_change_post.append(isosurf_frame)
+    bpy.app.handlers.persistent(isosurf_prerender)
+    bpy.app.handlers.render_pre.append(isosurf_prerender)
+    bpy.app.handlers.persistent(isosurf_postrender)
+    bpy.app.handlers.render_post.append(isosurf_postrender)
     print('isosurfer handler created successfully!')
-
-  
-
-
-
-
