@@ -10,7 +10,7 @@ from libc.math cimport sin , ceil , floor , fabs
 from cython.parallel import parallel , prange , threadid
 from libc.stdlib cimport malloc , realloc, free , rand , srand
 
-ctypedef int (*f_type)(Cell)nogil
+ctypedef float (*f_type)(Test)nogil
 
 cdef extern from *:
     int INT_MIN
@@ -336,6 +336,7 @@ cdef void scalarfield(float **result,int index,Point pos,unsigned int *par,int p
     cdef float a = 1000000000.0
     cdef float b = 0
     cdef unsigned int bestid = 0
+    #cdef Test *test = <Test *>malloc( parnum * cython.sizeof(Test) )
     #for i in range(parnum):
         #print "  ",par[i]
     for i in range(parnum):
@@ -343,8 +344,10 @@ cdef void scalarfield(float **result,int index,Point pos,unsigned int *par,int p
         x = pos.loc[0] - cypar[ii].loc[0]
         y = pos.loc[1] - cypar[ii].loc[1]
         z = pos.loc[2] - cypar[ii].loc[2]
-        dist = x*x+y*y+z*z
+        dist = x*x+y*y+z*z 
         b = dist - (cypar[ii].size * cypar[ii].size)
+        #test[i].id = ii
+        #test[i].dist = b
         if b < a:
             a = b
             bestid = ii
@@ -353,9 +356,29 @@ cdef void scalarfield(float **result,int index,Point pos,unsigned int *par,int p
     z = pos.loc[2] - cypar[bestid].loc[2]
     dist = (x*x+y*y+z*z)**0.5 - (cypar[bestid].size)
     result[index][0] = dist
+    #quick_sort(test,parnum,distparam)
+    #with gil:
+       #print bestid,test[0].id,test[0].dist,test[1].dist
+    '''   
+    if parnum >= 4:
+        for i in xrange(cypar[bestid].numprop):
+            result[index][i+1] = (cypar[test[0].id].prop[i] * 0.75) + (cypar[test[1].id].prop[i] * 0.20) + (cypar[test[2].id].prop[i] * 0.04) + (cypar[test[3].id].prop[i] * 0.01)
+    elif parnum >= 3:
+        for i in xrange(cypar[bestid].numprop):
+            result[index][i+1] = (cypar[test[0].id].prop[i] * 0.75) + (cypar[test[1].id].prop[i] * 0.20) + (cypar[test[2].id].prop[i] * 0.05)
+
+    if parnum >= 2:
+        for i in xrange(cypar[bestid].numprop):
+            result[index][i+1] = (cypar[test[0].id].prop[i] * 0.75) + (cypar[test[1].id].prop[i] * 0.25)
+    '''        
+    #else:        
     for i in xrange(cypar[bestid].numprop):
         result[index][i+1] = cypar[bestid].prop[i]
-    return
+    
+    #result[index][4] = (pos.loc[0]-cypar[bestid].loc[0]) + cypar[bestid].prop[3]
+    #result[index][5] = (pos.loc[1]-cypar[bestid].loc[1]) + cypar[bestid].prop[4]
+    #result[index][6] = (pos.loc[2]-cypar[bestid].loc[2]) + cypar[bestid].prop[5]
+    return 
     #'''
     '''        
     cdef float m = 2 #distance between spheres
@@ -475,7 +498,7 @@ cdef void polygonise(float **cycornervalues,int propnum,Point *cycornerpos,float
 
     free(cyvertlist)
     cyvertlist = NULL  
-    for i in xrange(propnum):
+    for i in xrange(12):
         free(cyvertprop[i])
         cyvertprop[i] = NULL
     free(cyvertprop)
@@ -486,7 +509,8 @@ cdef void vertexinterp(Point *cyvertlist,float *cyvertprop,int propnum,float iso
     cdef int i = 0
     #with gil:
         #print "VertexInterp1:",propnum
-    if (fabs(isolevel-valp1) < 0.00001):
+
+    if (fabs(isolevel-valp1) < 0.000001):
         cyvertlist.loc[0] = p1.loc[0]
         cyvertlist.loc[1] = p1.loc[1]
         cyvertlist.loc[2] = p1.loc[2]
@@ -495,7 +519,7 @@ cdef void vertexinterp(Point *cyvertlist,float *cyvertprop,int propnum,float iso
                 #print 666
             cyvertprop[i] = prop1[i]
         return
-    if (fabs(isolevel-valp2) < 0.00001):
+    if (fabs(isolevel-valp2) < 0.000001):
         cyvertlist.loc[0] = p2.loc[0]
         cyvertlist.loc[1] = p2.loc[1]
         cyvertlist.loc[2] = p2.loc[2]
@@ -504,7 +528,7 @@ cdef void vertexinterp(Point *cyvertlist,float *cyvertprop,int propnum,float iso
                 #print 777
             cyvertprop[i] = prop2[i]
         return
-    if (fabs(valp1-valp2) < 0.00001):
+    if (fabs(valp1-valp2) < 0.000001):
         cyvertlist.loc[0] = p1.loc[0]
         cyvertlist.loc[1] = p1.loc[1]
         cyvertlist.loc[2] = p1.loc[2]
@@ -513,6 +537,7 @@ cdef void vertexinterp(Point *cyvertlist,float *cyvertprop,int propnum,float iso
                 #print 888
             cyvertprop[i] = prop1[i]
         return
+
     cdef float mu
     cdef float *p = [0,0,0]
     mu = ((isolevel - valp1) / (valp2 - valp1))
@@ -521,6 +546,7 @@ cdef void vertexinterp(Point *cyvertlist,float *cyvertprop,int propnum,float iso
     cyvertlist.loc[2] = p1.loc[2] + mu * (p2.loc[2] - p1.loc[2])
     for i in xrange(propnum):
         cyvertprop[i] = prop1[i] + mu * (prop2[i] - prop1[i])
+        #cyvertprop[i] = (prop1[i]*0.5) + (prop2[i]*0.5)
     #with gil:
         #print 999
  
@@ -912,7 +938,8 @@ cdef void build2(unsigned int *cyparid,int cyparnum,float *cyp0,float *cyp1,int 
     cdef float cx = 0.0
     cdef float cy = 0.0
     cdef float cz = 0.0
-    
+    cdef int i = 0
+    cdef int ii = 0
     cdef int cblocknum = 0
     cdef int cblockmem = 0
     cdef Block *cblock = NULL
@@ -932,6 +959,8 @@ cdef void build2(unsigned int *cyparid,int cyparnum,float *cyp0,float *cyp1,int 
     
     for i in xrange(8):
         cornervalues[i] = <float *>malloc( (cypar[0].numprop + 1) * cython.sizeof(float) )
+        for ii in xrange(cypar[0].numprop + 1):
+            cornervalues[i][ii] = 0.0
 
     #with gil:
         #print "Building:",cypar[0].numprop
@@ -1108,17 +1137,20 @@ cdef float zparam(Point a)nogil:
     return a.loc[2]
 
     
-cdef int idparam(Cell a)nogil:
+cdef int idparam(Test a)nogil:
     return a.id
+    
+cdef float distparam(Test a)nogil:
+    return a.dist
 
     
-cdef void quick_sort(Cell *a,long long n,f_type func)nogil:
+cdef void quick_sort(Test *a,long long n,f_type func)nogil:
     if (n < 2):
         return
-    cdef Cell t
+    cdef Test t
     cdef double p = func(a[n / 2])#a[n / 2].loc[0]
-    cdef Cell *l = a
-    cdef Cell *r = a + n - 1
+    cdef Test *l = a
+    cdef Test *r = a + n - 1
     while l <= r:
         if func(l[0]) < p:
             l += 1
@@ -1192,3 +1224,7 @@ cdef struct Cell:
     unsigned int *par
     int parnum
     int parmem
+    
+cdef struct Test:
+    unsigned long id
+    float dist
