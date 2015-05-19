@@ -93,8 +93,13 @@ def add_isosurf_manual_map():
     
 def isosurf_prerender(context):
     scn = bpy.context.scene
+    fstart = scn.frame_start
+    fstep = scn.frame_step
+    fcurrent = scn.frame_current
     scn.IsoSurf_context = "RENDER"
-    isosurf(context)
+    #print((fcurrent - fstart) % fstep)
+    if (fcurrent - fstart) % fstep == 0.0:
+        isosurf(context)
 
 def isosurf_postrender(context):
     scn = bpy.context.scene    
@@ -102,10 +107,22 @@ def isosurf_postrender(context):
         
 def isosurf_frame(context):
     scn = bpy.context.scene
+    fstart = scn.frame_start
+    fstep = scn.frame_step
+    fcurrent = scn.frame_current
     #print(scn.IsoSurf_context)
-    if scn.IsoSurf_context == "WINDOW":
-        isosurf(context)
-
+    #print(context)
+    #print(bpy.context.screen)
+    #print(bpy.context.window)
+    #print(bpy.context.area)
+    #bpy.context.space_data.type
+    if bpy.context.screen != None and bpy.context.area == None:
+        if scn.IsoSurf_context == "WINDOW":
+            isosurf(context)
+    else:
+        if (fcurrent - fstart) % fstep == 0.0:
+            if scn.IsoSurf_context == "WINDOW":
+                isosurf(context)
         
 def isosurf(context):
     global tmframe
@@ -114,8 +131,7 @@ def isosurf(context):
 
     
     stime = time.clock()
-    global a
-    print("Start calculation of isosurface...frame:",bpy.context.scene.frame_current)  
+    global a  
     SurfList = []
     i = 0
     for object in bpy.context.scene.objects:
@@ -131,7 +147,8 @@ def isosurf(context):
                         if item.psys != '':
                             SurfList[i].append((item.obj,item.psys,item.sizem))
             i += 1
-                            
+    if len(SurfList) > 0: 
+        print("Start calculation of isosurface...frame:",bpy.context.scene.frame_current)                        
     for surfobj in SurfList:
         #print(bpy.context)
         #print(bpy.context.screen)
@@ -230,8 +247,9 @@ def isosurf(context):
                 #---TEST
                 bm.faces.new( (vertex1, vertex2, vertex3) ).smooth = True
                 
+            #"""
             #print(preview)
-            #bm.verts.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
             #print("   verts lookuptable bmesh")
             bm.faces.ensure_lookup_table()
             #print("   face lookuptable bmesh")
@@ -249,27 +267,35 @@ def isosurf(context):
                 #bm.faces[i].loops[2][p1].uv = (a[i*9+6]-b[i*lprop+15],a[i*9+7]-b[i*lprop+16])
                 #bm.faces[i].loops[2][p2].uv = (a[i*9+8]-b[i*lprop+17],0.0)
             #print("   uv loop bmesh")
+            #"""
             if preview == False:
                 #print(preview)
-                bmesh.ops.remove_doubles(bm,verts=bm.verts,dist=res/100)
+                #bmesh.ops.remove_doubles(bm,verts=bm.verts,dist=res/100)
+                bmesh.ops.automerge(bm, verts=bm.verts, dist=res/100)
             #print("   remove doubles bmesh")
             bm.to_mesh(mesurf)
             #print("   to_mesh bmesh")
             bm.free()
             #print("   free bmesh")
-            scn.update()
-            #print("   scene update")            
+            #"""
+            ##scn.update()
+            #print("   scene update")   
+            fps = scn.render.fps / scn.render.fps_base
             mesurf.shape_keys.animation_data_clear()
             mesurf.shape_keys.key_blocks['IsoSurf_mb'].slider_min = -1.0
-            mesurf.shape_keys.key_blocks['IsoSurf_mb'].value = 1/scn.render.fps
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].slider_max = 1.0
+            
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].value = 1/fps
             mesurf.shape_keys.key_blocks['IsoSurf_mb'].keyframe_insert("value",frame=scn.frame_current + 1)
-            mesurf.shape_keys.key_blocks['IsoSurf_mb'].value = -1/scn.render.fps
+            
+            mesurf.shape_keys.key_blocks['IsoSurf_mb'].value = -1/fps
             mesurf.shape_keys.key_blocks['IsoSurf_mb'].keyframe_insert("value",frame=scn.frame_current - 1)
+            
             mesurf.shape_keys.key_blocks['IsoSurf_mb'].value = 0.0
             mesurf.shape_keys.key_blocks['IsoSurf_mb'].keyframe_insert("value",frame=scn.frame_current)
-            
-            
-            
+            #"""
+            #scn.update()
+
             print('  Bmesh:',time.clock() - stime,'sec')
 
             #bpy.context.scene.objects.unlink(obsurf)
@@ -388,7 +414,7 @@ class IsoSurf(bpy.types.PropertyGroup):
     obj = StringProperty()
     psys = StringProperty()
     #res = FloatProperty()
-    sizem = FloatProperty()
+    sizem = FloatProperty(precision = 4)
     weight = FloatProperty()    
 
 class IsoLocalUV(bpy.types.Operator):
@@ -487,7 +513,7 @@ def register():
     bpy.utils.register_module(__name__)
     bpy.types.Object.IsoSurf = CollectionProperty(type=IsoSurf)
     bpy.types.Object.IsoSurf_index = IntProperty()
-    bpy.types.Object.IsoSurf_res = FloatProperty()
+    bpy.types.Object.IsoSurf_res = FloatProperty(precision = 4)
     bpy.types.Object.IsoSurf_preview = BoolProperty()
     bpy.types.Scene.IsoSurf_context = StringProperty(default = "WINDOW")
     #bpy.utils.register_class(IsoLocalUV)
@@ -514,4 +540,3 @@ if isosurf not in bpy.app.handlers.frame_change_post:
     bpy.app.handlers.render_cancel.append(isosurf_postrender)
     bpy.app.handlers.render_complete.append(isosurf_postrender)
     print('isosurfer handler created successfully!')
-
